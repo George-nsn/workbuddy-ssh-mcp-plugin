@@ -1,0 +1,46 @@
+{
+  "name": "@fangjunjie/ssh-mcp-server",
+  "version": "1.10.0",
+  "description": "SSH-based MCP Server (基于 SSH 的 MCP 服务器)",
+  "main": "build/index.js",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/classfang/ssh-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/classfang/ssh-mcp-server/issues"
+  },
+  "homepage": "https://github.com/classfang/ssh-mcp-server#readme",
+  "bin": {
+    "ssh-mcp-server": "build/index.js"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.js",
+    "test:watch": "node --test --watch test/*.test.js",
+    "build": "node scripts/build.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ssh",
+    "mcp",
+    "server",
+    "cli"
+  ],
+  "author": "Junki",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "socks": "^2.8.7",
+    "ssh2": "^1.17.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/ssh2": "^1.15.5",
+    "typescript": "^5.8.2"
+  },
+  "files": [
+    "build/**/*"
+  ]
+}

@@ -1,0 +1,2211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SSH 控制台</title>
+<script>
+try {
+  document.documentElement.dataset.theme = localStorage.getItem("wb_theme") === "dark" ? "dark" : "light";
+} catch (error) {
+  console.warn("无法读取主题偏好，使用默认浅色主题。", error);
+  document.documentElement.dataset.theme = "light";
+}
+</script>
+<style>
+  :root{
+    color-scheme:light;
+    --bg:#f3f5f9; --bg2:#f8fafc; --panel:#ffffff; --panel2:#f1f5f9; --panel3:#e8eef8;
+    --line:#e3e8f0; --line2:#cbd5e1; --text:#1e293b; --muted:#526278; --dim:#64748b;
+    --acc:#345ce6; --acc2:#087f8c; --ok:#16804a; --err:#d63646; --warn:#9a6509;
+    --hover:#f4f6ff; --selected:#f1f5ff; --accent-border:#bdcaf9;
+    --banner-bg:#edf3ff; --banner-border:#dbe6ff; --banner-text:#475d87;
+    --notice-bg:#fbf7ee; --notice-border:#e9dfc5; --notice-text:#806a3c;
+    --good-bg:#edf5ef; --good-text:#356b4b; --mid-bg:#f7f1e5; --mid-text:#816529;
+    --high-bg:#f8eee7; --high-text:#8d5e40; --bad-bg:#f8ecee; --bad-text:#974d56;
+    --code-bg:#f3f5f7; --drop-bg:#fafbfc; --placeholder:#7c8795;
+    --mono:"Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace;
+    --shadow:0 8px 28px rgba(30,41,59,.12);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:var(--line2);border:2px solid transparent;background-clip:padding-box;border-radius:6px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--dim)}
+  ::-webkit-scrollbar-track{background:transparent}
+  body{
+    background:var(--bg);
+    color:var(--text);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+    height:100vh;height:100dvh;display:grid;grid-template-rows:72px 1fr;overflow:hidden;
+  }
+  /* ---------- header ---------- */
+  header{
+    display:flex;align-items:center;gap:14px;padding:0 28px;
+    background:var(--panel);
+    border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex;align-items:center;gap:10px}
+  .logo{
+    width:38px;height:38px;border-radius:10px;background:var(--acc);
+    display:grid;place-items:center;font:700 17px var(--mono);color:white;
+    box-shadow:0 4px 14px rgba(52,92,230,.2);
+  }
+  .brand h1{font-size:16px;font-weight:700;letter-spacing:.2px}
+  .brand span{display:block;font-size:11px;color:var(--dim);font-weight:400;margin-top:-2px}
+  .spacer{flex:1}
+  .chip-srv{
+    display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:8px;max-width:32%;
+    background:var(--bg2);border:1px solid var(--line);font-size:12px;color:var(--muted);
+    font-family:var(--mono);
+  }
+  .chip-srv b{color:var(--text);font-weight:600}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none}
+  .dot.on{background:var(--ok)}
+  .dot.err{background:var(--err)}
+  .dot.wait{background:var(--warn);animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  /* ---------- buttons ---------- */
+  button,.btn{
+    background:var(--panel);border:1px solid var(--line2);color:var(--text);
+    border-radius:8px;padding:8px 13px;font-size:13px;cursor:pointer;transition:background .16s,border-color .16s,box-shadow .16s;
+    font-family:inherit;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;
+  }
+  button:hover:not(:disabled){border-color:#aabaf3;color:var(--acc);background:var(--hover)}
+  button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+  button.primary{background:linear-gradient(135deg,#4169ec,#3453d6);border:1px solid transparent;color:white;font-weight:600}
+  button.primary:hover:not(:disabled){background:linear-gradient(135deg,#4169ec,#3453d6);border-color:transparent;color:white;filter:brightness(1.06);box-shadow:0 4px 12px rgba(52,92,230,.2)}
+  button.ghost{background:transparent}
+  button.danger:hover{border-color:var(--err);color:var(--err)}
+  button.sm{padding:4px 9px;font-size:12px;border-radius:6px}
+  button.icon{padding:6px 9px}
+  /* ---------- layout ---------- */
+  main{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:0}
+  aside{
+    background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;min-height:0;min-width:0;
+  }
+  .aside-head{display:flex;align-items:center;justify-content:space-between;padding:24px 18px 16px}
+  .aside-head h2{font-size:12px;color:var(--muted);letter-spacing:.08em;font-weight:600}
+  .srv-list{padding:0 12px 12px;overflow-y:auto;flex:1;min-height:0}
+  .srv{
+    border:1px solid var(--line);background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border-radius:11px;padding:12px;margin-bottom:9px;cursor:pointer;transition:.18s;position:relative;
+  }
+  .srv:hover{border-color:var(--line2);transform:translateY(-1px);box-shadow:0 5px 14px rgba(30,41,59,.1)}
+  .srv.active{border-color:var(--acc);background:var(--selected);box-shadow:0 0 0 1px rgba(52,92,230,.25),0 6px 16px rgba(30,41,59,.1)}
+  .srv.active::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:3px;border-radius:3px;background:var(--acc)}
+  .srv .row1{display:flex;align-items:center;gap:8px;font-weight:600;font-family:var(--mono);font-size:13px}
+  .srv .row1 .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .srv .addr{color:var(--dim);font-size:11.5px;font-family:var(--mono);margin:4px 0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .srv .row2{display:flex;align-items:center;gap:6px}
+  .pill{font-size:11px;padding:2px 8px;border-radius:11px;border:1px solid var(--line);color:var(--dim);background:rgba(255,255,255,.02)}
+  .pill.on{color:var(--good-text);border-color:rgba(63,185,80,.4);background:var(--good-bg)}
+  .pill.err{color:var(--bad-text);border-color:rgba(248,81,73,.4);background:var(--bad-bg)}
+  .pill.wait{color:var(--mid-text);border-color:rgba(210,153,34,.4);background:var(--mid-bg)}
+  .srv .lat{font-size:11px;color:var(--dim);font-family:var(--mono);margin-left:auto}
+  .empty{padding:22px 12px;color:var(--dim);font-size:12.5px;text-align:center;line-height:1.8}
+  /* ---------- main ---------- */
+  .content{display:grid;grid-template-rows:auto auto minmax(0,1fr);min-height:0;min-width:0}
+  .tabs{display:flex;gap:5px;padding:10px 28px 0;overflow-x:auto;background:var(--bg);border-bottom:1px solid var(--line)}
+  .tab{
+    padding:9px 14px;font-size:13px;color:var(--muted);cursor:pointer;border-radius:8px 8px 0 0;
+    border:1px solid transparent;border-bottom:none;transition:.15s;display:flex;align-items:center;gap:7px;flex:none;
+  }
+  .tab:hover:not(:disabled){color:var(--text);background:rgba(255,255,255,.04);border-color:transparent}
+  .tab.active{color:var(--acc);background:var(--panel);border-color:var(--line);font-weight:600;box-shadow:0 2px 5px rgba(30,41,59,.06)}
+  .tab:not(.active){background:transparent}
+  .pane{display:none;padding:22px 28px;overflow-y:auto;min-height:0;min-width:0}
+  .pane.active{display:flex;flex-direction:column;gap:16px}
+  /* ---------- common ---------- */
+  input:not([type]),input[type=text],input[type=number],input[type=password],textarea,select{
+    background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:8px;
+    padding:8px 11px;font-size:13px;font-family:inherit;outline:none;transition:.15s;width:100%;
+  }
+  input:focus,textarea:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 2px color-mix(in srgb,var(--acc) 18%,transparent)}
+  input::placeholder,textarea::placeholder{color:var(--placeholder)}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .bar>.grow{flex:1;min-width:160px}
+  .chip{
+    font-size:12px;padding:5px 11px;border-radius:16px;border:1px solid var(--line);
+    color:var(--muted);cursor:pointer;background:var(--panel);font-family:var(--mono);transition:.15s;
+  }
+  .chip:hover{color:var(--acc);border-color:var(--accent-border);background:var(--hover)}
+  .muted{color:var(--muted)}
+  .dim{color:var(--dim);font-size:12px}
+  hr.sep{border:none;border-top:1px solid var(--line);margin:2px 0}
+  /* ---------- terminal ---------- */
+  .term-wrap{
+    --text:#dce5f3;--muted:#a4b3ca;--dim:#95a6c1;--acc:#8eafff;--acc2:#60d5bd;--err:#ffb3ae;
+    --panel:#182338;--panel2:#1f2d45;--panel3:#273852;--line:#2a3850;--line2:#415273;
+    color-scheme:dark;color:var(--text);background:#101a2c;border:1px solid #25334d;border-radius:12px;overflow:hidden;
+    display:flex;flex-direction:column;min-height:280px;flex:1;box-shadow:0 8px 24px rgba(15,23,42,.1);
+  }
+  .term-head{
+    display:flex;align-items:center;gap:10px;padding:13px 18px;background:#172238;border-bottom:1px solid var(--line);
+    font-size:12px;color:var(--dim);font-family:var(--mono);
+  }
+  pre.out{
+    padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.65;white-space:pre-wrap;
+    word-break:break-all;overflow:auto;flex:1;color:var(--text);margin:0;
+  }
+  pre.out.err{color:var(--err)}
+  pre.out::selection{background:rgba(76,194,255,.28)}
+  /* ---------- files ---------- */
+  .files-grid{display:grid;grid-template-columns:1fr;gap:12px;min-height:0;flex:1}
+  .files-grid.split{grid-template-columns:minmax(320px,1fr) minmax(360px,46%)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  .card-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.015);flex-wrap:wrap}
+  .card-body{overflow:auto;min-height:0;flex:1}
+  .crumbs{display:flex;align-items:center;gap:2px;font-family:var(--mono);font-size:12.5px;flex-wrap:wrap;color:var(--muted);flex:1}
+  .crumbs a{color:var(--acc2);cursor:pointer;padding:2px 3px;border-radius:3px}
+  .crumbs a:hover{background:var(--hover)}
+  .crumbs span.sep{color:var(--dim)}
+  table.list{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.list th{
+    position:sticky;top:0;background:var(--bg2);color:var(--muted);font-weight:600;text-align:left;
+    padding:12px 16px;border-bottom:1px solid var(--line);font-size:11.5px;z-index:1;white-space:nowrap;
+  }
+  table.list td{padding:12px 16px;border-bottom:1px solid var(--line);white-space:nowrap;font-family:var(--mono)}
+  table.list tr:last-child td{border-bottom:0}
+  table.list tr:hover td{background:var(--hover)}
+  table.list td.name{max-width:420px;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+  a.fname{color:var(--acc);cursor:pointer;text-decoration:none}
+  a.fname:hover{text-decoration:underline}
+  a.fname.dir{color:var(--acc2);font-weight:600}
+  .ico{display:inline-block;width:16px;text-align:center;margin-right:6px;opacity:.9}
+  .viewer{display:flex;flex-direction:column;min-height:0}
+  .viewer textarea{
+    flex:1;border:none;border-radius:0;background:var(--bg2);color:var(--text);min-height:240px;resize:vertical;
+    font-size:12.5px;line-height:1.6;padding:12px;
+  }
+  .viewer-foot{display:flex;gap:8px;align-items:center;padding:9px 12px;border-top:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+  .searchbox{display:flex;gap:6px;align-items:center}
+  .searchbox input{width:190px}
+  .badge{font-size:11px;color:var(--dim);font-family:var(--mono)}
+  .badge b{color:var(--acc)}
+  /* ---------- transfer ---------- */
+  .dropzone{
+    border:1.5px dashed var(--line2);border-radius:14px;padding:32px;text-align:center;color:var(--muted);
+    transition:.18s;cursor:pointer;background:var(--drop-bg);
+  }
+  .dropzone:hover,.dropzone.over{border-color:var(--acc);background:var(--hover);color:var(--acc)}
+  .dropzone .big{font-size:26px;margin-bottom:6px}
+  .dir-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+  .crumbs-row{padding:4px 12px 7px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .crumbs-row .crumbs{font-size:11.5px}
+  #path-input{font-size:12.5px;padding:6px 10px}
+  .sm.on{border-color:var(--accent-border);color:var(--acc);background:var(--selected)}
+  /* ---------- keys / explain ---------- */
+  .explain{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;padding:14px 16px}
+  .ex-item{display:flex;gap:10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-size:12.8px;line-height:1.75;color:var(--muted)}
+  .ex-item b{color:var(--text)}
+  .ex-ico{font-size:18px;line-height:1.2;flex:none}
+  .ex-note{padding:0 16px 14px;font-size:12.8px;color:var(--muted)}
+  .ex-note b{color:var(--acc2)}
+  .ex-note code,.step code,.kv code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:var(--acc)}
+  .kv{display:grid;grid-template-columns:52px 1fr;gap:10px;align-items:start;padding:5px 0;font-size:12.5px}
+  .kv span{color:var(--muted)}
+  .kv code{word-break:break-all;padding:4px 7px;display:block}
+  .steps{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .steps h4{font-size:13px;margin-bottom:8px;color:var(--acc2)}
+  .step{font-size:12.5px;color:var(--muted);margin-bottom:10px;line-height:1.7}
+  .step b{color:var(--text)}
+  .step code{display:block;margin-top:5px;padding:10px 12px;white-space:pre-wrap;word-break:break-all;color:var(--acc)}
+  .step.warn{color:var(--warn)}
+  .banner{display:block;padding:10px 14px;border-radius:9px;background:var(--banner-bg);border:1px solid var(--banner-border);font-size:12.5px;color:var(--banner-text);line-height:1.8}
+  .banner a{color:var(--acc);cursor:pointer;text-decoration:underline}
+  .env-item{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:12.5px;align-items:flex-start}
+  .env-item:last-child{border-bottom:none}
+  .env-ico{width:18px;flex:none;text-align:center}
+  .env-item .lbl{font-weight:600;color:var(--text)}
+  .env-item .det{color:var(--muted);word-break:break-all;margin-top:2px;font-family:var(--mono);font-size:11.8px}
+  .env-item .adv{color:var(--warn);margin-top:3px;font-size:12px}
+  .tstep{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+  .tstep:last-child{border-bottom:none}
+  .tstep .sug{color:var(--warn);font-size:12px;margin-top:3px}
+  /* ---------- terminal pro ---------- */
+  #pane-term.active{gap:10px}
+  .hist{max-height:32%;flex:none;display:flex;flex-direction:column;min-height:120px}
+  .hist.collapsed{max-height:none;min-height:0}
+  .hist.collapsed .card-body{display:none}
+  .hist .card-body{overflow-y:auto}
+  .seg.tiny{border-radius:7px;flex:none}
+  .seg.tiny button{padding:4px 9px;font-size:11.5px}
+  .hist-row{display:grid;grid-template-columns:76px 118px minmax(0,1fr) auto;gap:10px;padding:9px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;cursor:pointer;align-items:center}
+  .hist-row:hover{background:var(--hover)}
+  .hist-row .t{color:var(--dim)}
+  .hist-row .s{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hist-row .c{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hist-row .st{font-size:11px;padding:1px 6px;border-radius:4px;border:1px solid var(--line);color:var(--dim)}
+  .hist-row .st.ok{color:var(--ok);border-color:var(--line)}
+  .hist-row .st.err{color:var(--err);border-color:var(--line)}
+  .hist-row.ai .c{color:var(--acc2)}
+  .prompt-area{flex:none;display:flex;flex-direction:column;gap:6px}
+  /* 经典终端：提示符贴在输出底部 */
+  .term-body{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+  .prompt-line{display:flex;align-items:center;gap:10px;padding:14px 16px;border-top:1px solid var(--line);background:#142036}
+  .prompt-line input{flex:1;min-width:0;background:transparent;border:none;box-shadow:none;padding:0;font-family:var(--mono);font-size:calc(13px * var(--term-zoom,1))}
+  .prompt-line input:focus{box-shadow:none}
+  .prompt-line:focus-within{background:#1b2a45;box-shadow:inset 3px 0 0 #8eafff}
+  .chips-row{padding:8px 16px;background:#101a2c}
+  .slash-menu{position:absolute;left:10px;right:10px;bottom:44px;z-index:6;box-shadow:0 -8px 24px rgba(0,0,0,.5)}
+  .prompt-bar{display:flex;align-items:center;gap:9px;background:#101a2c;border:1px solid var(--line);border-radius:10px;padding:8px 10px;transition:.15s}
+  .prompt-bar:focus-within{border-color:var(--acc);box-shadow:0 0 0 3px rgba(76,194,255,.1)}
+  .prompt{font-family:var(--mono);font-size:12.5px;color:var(--acc2);white-space:nowrap;max-width:42%;overflow:hidden;text-overflow:ellipsis}
+  .prompt-bar input{background:transparent;border:none;box-shadow:none;padding:2px 0;font-size:13px;flex:1;min-width:0;width:auto}
+  .prompt-bar input:focus{box-shadow:none}
+  .keys{font-size:11px;color:var(--dim);white-space:nowrap}
+  @media (max-width:1180px){ .keys{display:none} .prompt{max-width:34%} }
+  .chips-row{display:flex;gap:6px;flex-wrap:wrap}
+  .slash-menu{display:none;flex-direction:column;background:var(--panel2);border:1px solid var(--line2);border-radius:6px;overflow:hidden;max-height:215px;overflow-y:auto}
+  .slash-menu.show{display:flex}
+  .slash-item{display:flex;gap:12px;padding:7px 12px;font-size:12.5px;cursor:pointer;font-family:var(--mono)}
+  .slash-item:hover{background:var(--panel3)}
+  .slash-item b{color:var(--acc);min-width:165px}
+  .slash-item span{color:var(--muted);font-family:inherit}
+  .out{font-size:calc(12.5px * var(--term-zoom,1))!important}
+  .out .cmdline{color:var(--acc)}
+  .out .dim{color:var(--dim)}
+  .out .err{color:var(--err)}
+  .out .ai{color:#c4b2e7}
+  .out .warn{color:var(--warn)}
+  /* ---------- modal ---------- */
+  .overlay{
+    position:fixed;inset:0;background:rgba(12,16,22,.48);
+    display:none;place-items:center;z-index:50;padding:20px;
+  }
+  .overlay.show{display:grid}
+  .modal{
+    width:min(520px,96vw);background:var(--panel);
+    border:1px solid var(--line2);border-radius:7px;box-shadow:var(--shadow);overflow:hidden;
+  }
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line)}
+  .modal-head h3{font-size:15px}
+  .modal-body{padding:14px 16px;display:flex;flex-direction:column;gap:12px;max-height:70vh;overflow-y:auto}
+  .modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:var(--bg2)}
+  label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:none;border-radius:0;flex:1;background:transparent;color:var(--muted);padding:7px}
+  .seg button.on{background:var(--selected);color:var(--acc);font-weight:600}
+  /* ---------- toast ---------- */
+  #toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:99}
+  .toast{
+    background:var(--panel3);border:1px solid var(--line2);border-left:3px solid var(--ok);
+    color:var(--text);padding:10px 15px;border-radius:9px;font-size:13px;box-shadow:var(--shadow);
+    max-width:440px;animation:slide .2s ease-out;word-break:break-all;
+  }
+  .toast.err{border-left-color:var(--err)}
+  .toast.info{border-left-color:var(--acc)}
+  @keyframes slide{from{transform:translateX(16px);opacity:0}to{transform:none;opacity:1}}
+  .ui-icon{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  .icon-library{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
+  :focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+  .workspace-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:24px 28px 16px}
+  .workspace-head h2{font-size:24px;line-height:1.4;font-weight:700}
+  .workspace-head p{font-size:12px;color:var(--muted);margin-top:3px}
+  .local-badge{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:11px;white-space:nowrap}
+  .local-badge .dot{width:6px;height:6px;background:var(--ok)}
+  .aside-label{display:flex;align-items:center;gap:8px}
+  .count-badge{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--panel2);color:var(--dim);font:11px var(--mono)}
+  .aside-foot{padding:18px;border-top:1px solid var(--line);font-size:11px;color:var(--dim);line-height:1.8}
+  .aside-foot b{display:block;font-size:12px;color:var(--muted);font-weight:500}
+  .chip-srv #cur-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .card{box-shadow:0 2px 7px rgba(30,41,59,.045);flex-shrink:0}
+  .card-head{padding:13px 16px;min-width:0}
+  .card-head>.grow{flex:1 1 180px;min-width:120px}
+  .card-head>b{white-space:nowrap}
+  .card-body{max-width:100%}
+  .bar>select,.bar>input{width:auto;min-width:0;flex:0 1 180px}
+  .bar>.f{min-width:0}
+  #cfg-path,#monitor-config,#monitor-health{overflow-wrap:anywhere}
+  #cfg-path{max-width:65%}
+  #monitor-config{padding:14px 16px;font:11px/1.8 var(--mono);border-bottom:1px solid var(--line);background:var(--bg2)}
+  #monitor-health:not(:empty){padding:11px 14px;border:1px solid var(--notice-border);background:var(--notice-bg);color:var(--notice-text);border-radius:8px}
+  #monitor-health:empty{display:none}
+  #monitor-updated{margin-left:auto;font:11px var(--mono)}
+  #pane-monitor table{min-width:740px}
+  #pane-monitor td{white-space:normal;min-width:100px;max-width:290px;overflow-wrap:anywhere;vertical-align:top;line-height:1.9}
+  .risk-badge,.result-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:7px;font:600 11px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;white-space:nowrap}
+  .risk-low,.result-success{color:var(--good-text);background:var(--good-bg)}
+  .risk-medium,.result-running{color:var(--mid-text);background:var(--mid-bg)}
+  .risk-high{color:var(--high-text);background:var(--high-bg)}
+  .risk-critical,.result-failed{color:var(--bad-text);background:var(--bad-bg)}
+  .result-unknown{color:var(--muted);background:var(--panel2)}
+  .cell-detail{display:block;margin-top:4px;color:var(--dim);font-size:11px}
+  .monitor-tool{font-weight:600;color:var(--text)}
+  .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:38px 12px}
+  .empty-state>.ui-icon{width:32px;height:32px;padding:6px;box-sizing:content-box;background:var(--panel2);border-radius:10px;color:var(--dim)}
+  .empty-state b{font-size:13px;color:var(--muted);font-weight:500}
+  .term-wrap button:hover:not(:disabled){background:#263a59;color:#b9ceff;border-color:#5874a6}
+  .term-wrap .prompt-line input{color:#e0e9f8}
+  .term-wrap .prompt-line input::placeholder{color:#a4b3ca}
+  .term-wrap .out .dim{color:#a4b3ca}
+  .term-wrap .slash-item:hover{background:#263a59}
+  .viewer textarea:read-only{background:var(--panel2)}
+  .dropzone{background:var(--drop-bg);padding:36px 24px;border-color:var(--accent-border)}
+  .dropzone .big{display:grid;place-items:center;width:48px;height:48px;margin:0 auto 14px;background:var(--selected);border-radius:12px;color:var(--acc)}
+  .dropzone .big .ui-icon{width:27px;height:27px}
+  .dropzone:hover,.dropzone.over{background:var(--selected);border-color:var(--acc)}
+  .modal{max-height:calc(100dvh - 32px);display:flex;flex-direction:column}
+  .modal-head,.modal-foot{flex-shrink:0}
+  .modal-body{min-height:0}
+  .viewer-foot{background:var(--bg2)}
+  .hist{min-height:130px}
+  #pane-term.active{gap:14px}
+  #hist-q{background:var(--bg2);font-family:inherit}
+  #toasts{max-width:calc(100vw - 32px)}
+  .toast{max-width:100%}
+  @media (min-width:1600px){.pane{padding:20px 32px}.tabs{padding-left:32px}.workspace-head{padding-left:32px;padding-right:32px}}
+  @media (max-width:1100px){
+    main{grid-template-columns:230px minmax(0,1fr)}
+    header{padding:0 20px}
+    .pane{padding:18px 20px}
+    .workspace-head{padding:20px 20px 14px}
+    .tabs{padding-left:20px;padding-right:20px;gap:4px}
+    .tab{padding:8px 12px}
+    .local-badge{display:none}
+  }
+  @media (max-width:800px){
+    body{grid-template-rows:auto minmax(0,1fr)}
+    header{padding:12px 16px;gap:10px;flex-wrap:wrap}
+    .brand{margin-right:auto}
+    header>.spacer{display:none}
+    header .chip-srv{order:4;max-width:100%;width:100%;font-size:11px;padding:6px 10px}
+    header button{padding:7px 10px;font-size:12px}
+    .brand h1{font-size:14px}
+    .brand span{font-size:9px}
+    main{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+    aside{border-right:none;border-bottom:1px solid var(--line);max-height:176px}
+    .aside-head{padding:10px 16px 8px}
+    .aside-foot{display:none}
+    .srv-list{display:flex;gap:10px;overflow-x:auto;overflow-y:hidden;padding:0 16px 10px;min-height:0}
+    .srv{width:230px;flex:0 0 230px;margin-bottom:0;padding:10px 12px}
+    .srv-list>.empty{width:100%;padding:4px}
+    .srv-list .empty-state{flex-direction:row;padding:0;gap:10px}
+    .srv-list .empty-state>.ui-icon{width:18px;height:18px;padding:6px}
+    .srv-list .empty-state .empty-copy{display:none}
+    .workspace-head{padding:17px 16px 12px}
+    .workspace-head h2{font-size:20px}
+    .workspace-head p{font-size:11px}
+    .tabs{padding:0 16px 10px;gap:4px;scrollbar-width:thin}
+    .tab{padding:8px 10px;font-size:12px}
+    .tab .ui-icon{width:15px;height:15px}
+    .pane{padding:16px;scroll-padding:16px}
+    .pane.active{gap:14px}
+    .term-wrap{min-height:300px}
+    .term-head{padding:10px 12px;gap:6px;flex-wrap:wrap}
+    #ai-badge{max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .hist{min-height:126px;max-height:180px}
+    .hist-row{grid-template-columns:64px minmax(0,1fr) auto;gap:8px}
+    .hist-row .s{display:none}
+    .card-head{padding:12px}
+    .searchbox{flex-wrap:wrap;max-width:100%}
+    .searchbox input{width:130px}
+    .bar>select,.bar>input{flex:1 1 140px}
+    #monitor-updated{margin-left:0;width:100%}
+    .two{grid-template-columns:1fr}
+    #cfg-path{max-width:100%;width:100%}
+    .modal{width:min(520px,100%);border-radius:12px}
+    .overlay{padding:12px}
+    .explain{grid-template-columns:1fr}
+    #viewer-path{max-width:100%!important}
+    #pane-files table,#pane-acct table,#pane-xfer table{min-width:640px}
+    .files-grid.split{grid-template-columns:1fr}
+  }
+  @media (max-width:480px){
+    header{column-gap:8px}
+    .brand{gap:8px;min-width:0}
+    .brand .logo{width:32px;height:32px;border-radius:10px;font-size:15px}
+    .brand h1{font-size:13px}
+    .brand span{display:none}
+    header button{padding:7px 9px;font-size:11px}
+    .workspace-head p{max-width:100%}
+    .card-head .seg{margin-right:auto}
+    .prompt{max-width:28%}
+    #hist-q{flex-basis:100%;order:1}
+    #pane-term .hist .card-head{gap:8px}
+    .dir-row{grid-template-columns:minmax(0,1fr)}
+    .dir-row>button{justify-self:start}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#080c11;--bg2:#0d131b;--panel:#111a24;--panel2:#16212e;--panel3:#1b2838;
+    --line:#22303f;--line2:#2b3d51;--text:#dbe7f3;--muted:#9bacc0;--dim:#73869c;
+    --acc:#72b6ee;--acc2:#5ec9b4;--ok:#5cc487;--err:#f08079;--warn:#d5ad64;
+    --hover:#172332;--selected:#18263a;--accent-border:#426083;
+    --banner-bg:#122036;--banner-border:#293d5b;--banner-text:#adbed3;
+    --notice-bg:#2c261a;--notice-border:#55472d;--notice-text:#d5bd8b;
+    --good-bg:#162b22;--good-text:#7ad69a;--mid-bg:#302817;--mid-text:#e0c074;
+    --high-bg:#352317;--high-text:#efad7b;--bad-bg:#351b20;--bad-text:#f29aa1;
+    --code-bg:#0b1319;--drop-bg:#0f1721;--placeholder:#7589a2;
+    --shadow:0 8px 28px rgba(0,0,0,.4);
+  }
+  [data-theme="dark"] button:hover:not(:disabled){background:#202d3d;border-color:#456184}
+  [data-theme="dark"] .srv.active{box-shadow:0 0 0 1px rgba(76,194,255,.25),0 8px 18px rgba(0,0,0,.3)}
+  [data-theme="dark"] .tab.active{background:var(--panel);box-shadow:0 2px 4px rgba(0,0,0,.2)}
+  [data-theme="dark"] table.list tr:hover td{background:#141e2a}
+  [data-theme="dark"] .term-wrap button:hover:not(:disabled){background:#263a59;color:#b9ceff;border-color:#5874a6}
+  [data-theme="dark"] .hist-row.ai .c{color:var(--acc2)}
+</style>
+</head>
+<body>
+<svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m5 7 5 5-5 5m8 0h6"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="9" r="4"/><path d="m11 12 8 8m-3-3 3-3m-6 0 3-3"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V5h6l2 3h10v12H3V7Z"/></symbol>
+  <symbol id="i-transfer" viewBox="0 0 24 24"><path d="M8 20V4m-4 4 4-4 4 4m4-4v16m-4-4 4 4 4-4"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M12 6.5h5M12 17.5h5"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8m-4-4v4M6 11h3l2-4 3 7 2-3h2"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></symbol>
+</svg>
+<header>
+  <div class="brand">
+    <div class="logo" aria-hidden="true">&gt;_</div>
+    <div>
+      <h1>SSH 控制台</h1>
+      <span>SSH MCP · 本机运行</span>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="chip-srv" id="cur-chip"><span class="dot" id="cur-dot"></span><span id="cur-text">未选择服务器</span></div>
+  <button class="primary" id="btn-connect-all" title="依次探测所有服务器">全部连接</button>
+  <button class="ghost" id="btn-refresh" title="刷新账号与状态">↻ 刷新</button>
+  <button class="ghost" id="btn-theme" type="button" aria-pressed="false" title="切换到黑色模式">☾ 黑色模式</button>
+</header>
+
+<main>
+  <aside>
+    <div class="aside-head">
+      <div class="aside-label"><h2>服务器资源</h2><span class="count-badge" id="server-count" aria-label="服务器数量">0</span></div>
+      <button class="sm" id="btn-add">＋ 添加</button>
+    </div>
+    <div class="srv-list" id="srv-list">
+      <div class="empty">加载中…</div>
+    </div>
+    <div class="aside-foot"><b>本地运行 · 凭据留在本机</b>通过 SSH MCP 连接远程服务器<br>使用最小权限账号进行操作</div>
+  </aside>
+
+  <section class="content">
+    <div class="workspace-head">
+      <div><h2 id="workspace-title">终端工作台</h2>
+        <p id="workspace-description">连接远程环境，让每一次操作清晰可见。</p>
+      </div>
+      <span class="local-badge"><span class="dot"></span>本机服务 · 127.0.0.1</span>
+    </div>
+    <div class="tabs" role="tablist" aria-label="工作区模块">
+      <button class="tab active" id="tab-term" data-tab="term" role="tab" aria-selected="true" aria-controls="pane-term"><svg class="ui-icon" aria-hidden="true"><use href="#i-terminal"/></svg>终端</button>
+      <button class="tab" id="tab-keys" data-tab="keys" role="tab" aria-selected="false" aria-controls="pane-keys" tabindex="-1"><svg class="ui-icon" aria-hidden="true"><use href="#i-key"/></svg>密钥</button>
+      <button class="tab" id="tab-files" data-tab="files" role="tab" aria-selected="false" aria-controls="pane-files" tabindex="-1"><svg class="ui-icon" aria-hidden="true"><use href="#i-folder"/></svg>文件</button>
+      <button class="tab" id="tab-xfer" data-tab="xfer" role="tab" aria-selected="false" aria-controls="pane-xfer" tabindex="-1"><svg class="ui-icon" aria-hidden="true"><use href="#i-transfer"/></svg>传输</button>
+      <button class="tab" id="tab-acct" data-tab="acct" role="tab" aria-selected="false" aria-controls="pane-acct" tabindex="-1"><svg class="ui-icon" aria-hidden="true"><use href="#i-server"/></svg>账号</button>
+      <button class="tab" id="tab-monitor" data-tab="monitor" role="tab" aria-selected="false" aria-controls="pane-monitor" tabindex="-1"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"/></svg>操作监控</button>
+    </div>
+
+    <div class="pane active" id="pane-term">
+      <div class="banner" id="term-banner">👋 第一次使用？先到 <a id="link-keys">🔑 密钥</a> 页点一次「一键检测环境」，按引导生成并上传公钥，再回来点左侧「⚡ 连接」。</div>
+
+      <!-- 上：仅用于查找历史记录 -->
+      <div class="card hist" id="hist-card">
+        <div class="card-head">
+          <b style="font-size:13px">🕘 历史记录</b>
+          <input type="text" id="hist-q" class="grow" placeholder="搜索历史：命令 / 服务器 / 时间 / 状态…">
+          <div class="seg tiny" id="hist-filter">
+            <button data-f="all" class="on">全部</button>
+            <button data-f="cmd">命令</button>
+            <button data-f="ai">AI</button>
+          </div>
+          <button class="sm" id="btn-hist-clear">清空</button>
+          <button class="sm" id="btn-hist-toggle">收起</button>
+        </div>
+        <div class="card-body" id="hist-body"></div>
+      </div>
+
+      <!-- 输出 + 内联提示符（经典终端） -->
+      <div class="term-wrap" id="term-wrap">
+        <div class="term-head">
+          <span id="term-target">未连接</span>
+          <div class="spacer"></div>
+          <span class="dim" id="ai-badge"></span>
+          <span class="dim" id="term-zoom-label">100%</span>
+          <button class="sm ghost" id="btn-ai-cfg" title="配置 AI 服务（OpenAI 兼容接口）">⚙ AI</button>
+        </div>
+        <div class="term-body">
+          <pre class="out" id="out">请先在左侧选择服务器并点「连接」。
+提示：输入 / 查看可用指令（/workbuddy、/workbuddy-mode、/workbuddy-think）。</pre>
+          <div class="chips-row" id="chips-row" style="display:none">
+            <span class="chip" data-cmd="uptime">uptime</span>
+            <span class="chip" data-cmd="df -h">df -h</span>
+            <span class="chip" data-cmd="free -m">free -m</span>
+            <span class="chip" data-cmd="whoami && hostname">whoami</span>
+            <span class="chip" data-cmd="ps aux --sort=-%cpu | head -12">TOP CPU</span>
+            <span class="chip" data-cmd="tail -n 60 /var/log/syslog 2>/dev/null || journalctl -n 60 --no-pager">最近日志</span>
+          </div>
+          <div class="slash-menu" id="slash-menu"></div>
+          <div class="prompt-line">
+            <button class="sm ghost" id="btn-chips" title="快捷命令">⚡</button>
+            <span class="prompt" id="prompt-label">❯</span>
+            <input type="text" id="cmd" placeholder="输入命令回车执行 · 输入 / 查看指令" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-files">
+      <div class="card">
+        <div class="card-head">
+          <button class="sm" id="btn-back" title="后退">←</button>
+          <button class="sm" id="btn-fwd" title="前进">→</button>
+          <button class="sm" id="btn-up" title="上级目录">↑</button>
+          <button class="sm" id="btn-home" title="家目录">🏠</button>
+          <input type="text" id="path-input" class="grow" placeholder="/home/user（可编辑，回车跳转）" spellcheck="false">
+          <button class="sm" id="btn-ls" title="刷新">↻</button>
+          <button class="sm" id="btn-toggle-hidden" title="显示 / 隐藏以 . 开头的文件">👁</button>
+          <button class="sm" id="btn-diag" title="诊断当前路径">🔍</button>
+          <button class="sm primary" id="btn-upload">⇧ 上传</button>
+          <input type="file" id="file-input" multiple style="display:none">
+        </div>
+        <div class="crumbs-row"><div class="crumbs" id="crumbs"><span class="dim">尚未连接</span></div></div>
+        <div class="card-head" style="gap:8px">
+          <input type="text" id="search-q" placeholder="在当前目录及子目录查找…" class="grow">
+          <select id="search-mode" style="width:130px">
+            <option value="name">按文件名</option>
+            <option value="content">按内容 grep</option>
+          </select>
+          <button class="sm" id="btn-search">🔍 查找</button>
+        </div>
+        <div class="card-body">
+          <div id="search-result"></div>
+          <table class="list" id="file-table">
+            <thead><tr><th style="width:46%">名称</th><th>大小</th><th>权限</th><th>修改时间</th><th style="width:110px">操作</th></tr></thead>
+            <tbody id="file-body"><tr><td colspan="5" class="dim" style="padding:22px;text-align:center">选择服务器后点击「刷新」加载目录</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card viewer" id="viewer" style="display:none">
+        <div class="card-head">
+          <span class="dim" id="viewer-path" style="font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;max-width:45%"></span>
+          <div class="spacer"></div>
+          <div class="searchbox">
+            <input type="text" id="find-in-file" placeholder="文件内查找">
+            <span class="badge" id="find-count">0/0</span>
+            <button class="sm" id="btn-find-prev">↑</button>
+            <button class="sm" id="btn-find-next">↓</button>
+          </div>
+          <button class="sm primary" id="btn-save">保存</button>
+          <button class="sm" id="btn-close-viewer">✕</button>
+        </div>
+        <textarea id="editor" spellcheck="false" placeholder="文件内容"></textarea>
+        <div class="viewer-foot">
+          <span class="badge" id="file-meta">—</span>
+          <input type="text" id="save-as-path" placeholder="另存为路径，例如 /home/user/copy.conf" style="display:none;flex:1;min-width:180px">
+          <button class="sm primary" id="btn-save-as-ok" style="display:none">确定</button>
+          <div class="spacer"></div>
+          <button class="sm" id="btn-save-as">另存为…</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-xfer">
+      <div class="dir-row">
+        <label class="f">目标目录（远程）
+          <input type="text" id="xfer-dir" value="/root" placeholder="/root">
+        </label>
+        <button class="sm" id="btn-use-cur">使用当前目录</button>
+      </div>
+      <div class="dropzone" id="dropzone">
+        <div class="big"><svg class="ui-icon" aria-hidden="true"><use href="#i-upload"/></svg></div>
+        <div><b>拖拽文件到此处</b>，或点击选择本地文件</div>
+        <div class="dim" style="margin-top:6px">文件将直接上传到上方目标目录（保留文件名）</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><b style="font-size:13px">传输记录</b><div class="spacer"></div><button class="sm" id="btn-xfer-refresh">刷新</button></div>
+        <div class="card-body">
+          <table class="list">
+            <thead><tr><th>时间</th><th>方向</th><th>远程路径</th><th>大小</th><th>状态</th></tr></thead>
+            <tbody id="xfer-body"><tr><td colspan="5" class="dim" style="padding:18px;text-align:center">暂无记录</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-monitor">
+      <div class="banner">仅记录通过新版 SSH MCP 的操作；不监控手动 SSH、其他工具或既往操作。风险是规则提示，不是安全认证或拦截。命令参数、文件正文和输出不写入日志。</div>
+      <div class="bar">
+        <b>跨入口操作监控</b>
+        <select id="monitor-source" aria-label="操作来源">
+          <option value="">全部来源</option><option value="workbuddy">WorkBuddy</option>
+          <option value="dashboard">Dashboard</option><option value="mcp-client">其他 MCP 客户端</option>
+        </select>
+        <select id="monitor-risk" aria-label="风险等级">
+          <option value="">全部风险</option><option value="critical">严重</option>
+          <option value="high">高</option><option value="medium">中</option><option value="low">低</option>
+        </select>
+        <input id="monitor-server" placeholder="服务器名称（可选）" aria-label="服务器名称">
+        <button id="monitor-refresh">↻ 刷新</button>
+        <span class="dim" id="monitor-updated">进入后每 5 秒刷新</span>
+      </div>
+      <div class="dim" id="monitor-health"></div>
+      <div class="card"><div class="card-head"><b>配置同步与 MCP 实例</b></div><div class="card-body">
+        <div class="dim" id="monitor-config"></div>
+        <table class="list"><thead><tr><th>客户端 / PID</th><th>心跳</th><th>配置同步</th><th>进行中</th></tr></thead>
+          <tbody id="monitor-instances"><tr><td colspan="4">尚未加载</td></tr></tbody></table>
+      </div></div>
+      <div class="card"><div class="card-head"><b>最近操作（最多 100 条，非全量统计）</b></div><div class="card-body">
+        <table class="list"><thead><tr><th>时间 / 来源</th><th>服务器</th><th>操作摘要</th><th>风险 / 原因</th><th>结果 / 耗时</th></tr></thead>
+          <tbody id="monitor-events"><tr><td colspan="5">尚未加载</td></tr></tbody></table>
+      </div></div>
+      <div class="dim">仅同一配置路径的 MCP 实例在此汇总。首次升级需重启 WorkBuddy 的 MCP 连接器；后续账号修改在下一次工具调用前生效，并等待旧操作结束再切换连接。客户端名称由客户端自报，不能用于身份认证。无心跳不等于远端任务已停止。</div>
+    </div>
+
+    <div class="pane" id="pane-keys">
+      <div class="card">
+        <div class="card-head"><b>🔐 私钥和公钥是什么？（30 秒看懂）</b></div>
+        <div class="explain">
+          <div class="ex-item"><span class="ex-ico">🔒</span><div><b>公钥 = 锁芯</b><br>放在服务器上，可以公开给任何人，泄露了也没关系。</div></div>
+          <div class="ex-item"><span class="ex-ico">🔑</span><div><b>私钥 = 唯一钥匙</b><br>只留在你自己的电脑（~/.ssh 目录），相当于密码，绝不能发给别人。</div></div>
+          <div class="ex-item"><span class="ex-ico">🤝</span><div><b>登录时发生什么</b><br>服务器用你放的锁芯出一道题，只有你的钥匙能解开 —— 所以不用输密码，密码也不会在网上传输。</div></div>
+        </div>
+        <div class="ex-note">一句话流程：<b>生成密钥对 → 把 <code>.pub</code> 公钥贴到服务器 → 本机用私钥自动登录</b>。私钥永远不上传。</div>
+      </div>
+
+      <div class="bar">
+        <button class="primary" id="btn-envcheck">🔍 一键检测环境</button>
+        <button id="btn-genkey">＋ 生成新密钥</button>
+        <button id="btn-open-ssh">📂 打开密钥文件夹</button>
+        <div class="spacer"></div>
+        <span class="dim" id="ssh-dir-label"></span>
+      </div>
+      <div id="env-result"></div>
+
+      <div class="card">
+        <div class="card-head"><b>本地已有密钥</b><div class="spacer"></div><button class="sm" id="btn-keys-refresh">刷新</button></div>
+        <div class="card-body">
+          <table class="list">
+            <thead><tr><th>文件名</th><th>类型</th><th>指纹</th><th>公钥</th><th>日期</th></tr></thead>
+            <tbody id="keys-body"><tr><td colspan="5" class="dim" style="padding:18px;text-align:center">加载中…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="gen-result" style="display:none">
+        <div class="card-head"><b>✅ 密钥已生成</b><div class="spacer"></div><button class="sm" id="btn-gen-close">关闭</button></div>
+        <div class="card-body" style="padding:14px 16px">
+          <div class="kv"><span>私钥</span><code id="gen-priv"></code></div>
+          <div class="kv"><span>公钥</span><code id="gen-pub"></code></div>
+          <div class="kv"><span>指纹</span><code id="gen-fp"></code></div>
+          <div class="bar" style="margin:10px 0 4px">
+            <button class="primary sm" id="btn-copy-pub">复制公钥</button>
+            <button class="sm" id="btn-open-ssh2">📂 打开所在文件夹</button>
+            <button class="sm" id="btn-copy-cmd">复制 ssh-copy-id 命令</button>
+          </div>
+          <div class="steps">
+            <h4>把公钥放到服务器上的 3 种方式</h4>
+            <div class="step"><b>方式 A · 最省事</b><br>在<b>本机</b>终端执行下面的命令，按提示输入服务器密码，公钥会自动装好：<code id="cmd-copyid"></code></div>
+            <div class="step"><b>方式 B · 手动粘贴</b><br>先登录服务器，再把公钥内容追加进去：<code id="cmd-manual"></code></div>
+            <div class="step"><b>方式 C · 云控制台</b><br>阿里云 / 腾讯云等可在控制台「密钥对」页面导入公钥，再绑定到实例。</div>
+            <div class="step warn">⚠️ 没有 <code>.pub</code> 后缀的那个文件是私钥，只留在本机；不要上传、不要外发、不要提交到 Git。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-acct">
+      <div class="bar">
+        <b style="font-size:13px">服务器账号</b>
+        <span class="dim" id="cfg-path"></span>
+        <div class="spacer"></div>
+        <button class="sm primary" id="btn-add2">＋ 添加服务器</button>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <table class="list">
+            <thead><tr><th>名称</th><th>地址</th><th>用户</th><th>认证</th><th>状态</th><th style="width:210px">操作</th></tr></thead>
+            <tbody id="acct-body"><tr><td colspan="6" class="dim" style="padding:18px;text-align:center">加载中…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="dim">账号修改后，同配置的新版本 MCP 在下一次工具调用前加载；不会中断正在执行的操作。首次升级请重启 WorkBuddy 的 MCP 连接器，在「操作监控」查看同步状态。密码不回显，留空表示不修改。</div>
+    </div>
+  </section>
+</main>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-title">添加服务器</h3>
+      <button class="sm ghost" id="modal-x">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="two">
+        <label class="f">名称（唯一标识）<input type="text" id="f-name" placeholder="prod-01"></label>
+        <label class="f">端口<input type="number" id="f-port" value="22"></label>
+      </div>
+      <label class="f">主机地址<input type="text" id="f-host" placeholder="192.168.1.10 或 example.com"></label>
+      <label class="f">用户名<input type="text" id="f-user" placeholder="root"></label>
+      <label class="f">认证方式</label>
+      <div class="seg" id="auth-seg">
+        <button data-auth="key" class="on">私钥</button>
+        <button data-auth="password">密码</button>
+      </div>
+      <label class="f" id="wrap-key">私钥路径<input type="text" id="f-key" placeholder="C:/Users/Admin/.ssh/id_ed25519"></label>
+      <label class="f" id="wrap-pwd" style="display:none">密码<input type="password" id="f-pwd" placeholder="留空表示不修改"></label>
+    </div>
+    <div class="modal-foot">
+      <button id="modal-cancel">取消</button>
+      <button class="primary" id="modal-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay-test">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="test-title">连接诊断</h3>
+      <button class="sm ghost" id="test-x">✕</button>
+    </div>
+    <div class="modal-body" id="test-body"><div class="dim">检测中…</div></div>
+    <div class="modal-foot">
+      <button id="test-close">关闭</button>
+      <button class="primary" id="test-retry">重新测试</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay-key">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>生成新的密钥对</h3>
+      <button class="sm ghost" id="key-x">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="f">算法
+        <select id="k-algo">
+          <option value="ed25519">ed25519（推荐：更短、更快、更安全）</option>
+          <option value="rsa">RSA 4096（兼容老旧服务器，生成稍慢）</option>
+          <option value="ecdsa">ECDSA 521（兼容性中等）</option>
+        </select>
+      </label>
+      <label class="f">文件名<input type="text" id="k-name" value="id_ed25519" placeholder="id_ed25519"></label>
+      <label class="f">备注（写在公钥末尾，便于识别是谁的）<input type="text" id="k-comment" placeholder="例如 laptop-2026"></label>
+      <label class="f">密码短语（可选）<input type="password" id="k-pass" placeholder="建议留空，否则每次连接都要输入"></label>
+      <label class="f" style="flex-direction:row;align-items:center;gap:8px">
+        <input type="checkbox" id="k-over" style="width:auto"> 覆盖同名密钥（谨慎）
+      </label>
+      <div class="dim">私钥保存在 <code id="k-dir">~/.ssh</code>，公钥是同名的 <code>.pub</code> 文件。</div>
+    </div>
+    <div class="modal-foot">
+      <button id="key-cancel">取消</button>
+      <button class="primary" id="key-do">生成</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay-ai">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>AI 服务配置（OpenAI 兼容接口）</h3>
+      <button class="sm ghost" id="ai-x">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="f">服务预设
+        <select id="ai-preset">
+          <option value="">自定义</option>
+          <option value="https://api.deepseek.com/v1">DeepSeek</option>
+          <option value="https://api.openai.com/v1">OpenAI</option>
+          <option value="https://dashscope.aliyuncs.com/compatible-mode/v1">通义千问（兼容模式）</option>
+          <option value="https://api.moonshot.cn/v1">Kimi（Moonshot）</option>
+        </select>
+      </label>
+      <label class="f">Base URL<input type="text" id="ai-base" placeholder="https://api.deepseek.com/v1"></label>
+      <label class="f">API Key<input type="password" id="ai-key" placeholder="留空表示不修改已保存的 Key"></label>
+      <div class="bar">
+        <label class="f" style="flex:1">默认模型<input type="text" id="ai-model" placeholder="deepseek-chat"></label>
+        <button class="sm" id="ai-fetch-models">拉取模型列表</button>
+      </div>
+      <label class="f">可用模型（逗号分隔，供 /workbuddy-mode 切换）<input type="text" id="ai-models" placeholder="deepseek-chat, deepseek-reasoner"></label>
+      <div class="bar">
+        <button class="sm" id="ai-detect">🔍 自动检测本地模型</button>
+        <span class="dim">Ollama / LM Studio / vLLM，无需 Key</span>
+      </div>
+      <div id="ai-detect-result"></div>
+      <div class="dim" style="line-height:1.7">
+        Key 只保存在本机 <code>ssh-mcp-dashboard/ai-config.json</code>，仅用于调用你填写的这个接口。<br>
+        AI 只给出建议与命令文本，<b>不会自动执行</b>；需要执行时请复制回命令模式。
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button id="ai-cancel">取消</button>
+      <button class="primary" id="ai-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = {
+  accounts: [], conn: {}, current: "", tab: "term",
+  dir: "", entries: [], file: null, history: [], hi: -1,
+  find: { q: "", idx: 0, total: 0 }, searchRows: [], editing: null, auth: "key",
+  navStack: [], navIdx: -1, rawLs: "",
+  showHidden: localStorage.getItem("wb_show_hidden") !== "0",
+};
+
+/* ---------------- 基础 ---------------- */
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function toast(msg, type) {
+  const el = document.createElement("div");
+  el.className = "toast" + (type === "err" ? " err" : type === "info" ? " info" : "");
+  el.textContent = msg;
+  $("toasts").appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; el.style.transition = ".3s"; setTimeout(() => el.remove(), 300); }, 4200);
+}
+async function api(path, body, method) {
+  const opt = body || method
+    ? { method: method || "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined }
+    : {};
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(() => ({ ok: false, error: "响应解析失败" }));
+  if (!j.ok) {
+    const err = new Error(j.error || j.text || "请求失败");
+    err.payload = j;
+    throw err;
+  }
+  return j;
+}
+function fmtSize(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+  if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+  return (n / 1073741824).toFixed(2) + " GB";
+}
+function connOf(name) { return state.conn[name] || { status: "idle" }; }
+function pill(st) {
+  const map = {
+    connected: ['on', '已连接'], error: ['err', '连接失败'], connecting: ['wait', '连接中'], idle: ['', '未连接'],
+  };
+  const [cls, txt] = map[st.status || "idle"] || map.idle;
+  return '<span class="pill ' + cls + '">' + txt + "</span>" +
+    (st.latencyMs && st.status === "connected" ? '<span class="lat">' + st.latencyMs + " ms</span>" : "");
+}
+
+/* ---------------- 概览 / 服务器列表 ---------------- */
+async function loadOverview() {
+  try {
+    const j = await api("/api/overview");
+    state.accounts = j.accounts || [];
+    state.conn = j.conn || {};
+    $("cfg-path").textContent = j.configPath || "";
+    if (state.current && !state.accounts.some((a) => a.name === state.current)) state.current = "";
+    renderServers();
+    renderAccounts();
+    renderChip();
+  } catch (e) { toast("加载失败: " + e.message, "err"); }
+}
+
+function renderServers() {
+  const box = $("srv-list");
+  $("server-count").textContent = state.accounts.length;
+  if (!state.accounts.length) {
+    box.innerHTML = '<div class="empty empty-state"><svg class="ui-icon" aria-hidden="true"><use href="#i-server"/></svg>' +
+      '<b>添加第一台服务器</b><span class="empty-copy">连接你的远程工作环境<br>支持私钥或密码认证</span>' +
+      '<button class="sm" onclick="openModal()">＋ 添加服务器</button></div>';
+    return;
+  }
+  box.innerHTML = state.accounts.map((a) => {
+    const st = connOf(a.name);
+    return '<div class="srv' + (a.name === state.current ? " active" : "") + '" data-name="' + esc(a.name) + '">' +
+      '<div class="row1"><span class="dot ' + (st.status === "connected" ? "on" : st.status === "error" ? "err" : st.status === "connecting" ? "wait" : "") + '"></span>' +
+      '<span class="name">' + esc(a.name) + "</span></div>" +
+      '<div class="addr">' + esc(a.username + "@" + a.host + ":" + a.port) + "</div>" +
+      '<div class="row2">' + pill(st) +
+      '<button class="sm" data-test="' + esc(a.name) + '" style="margin-left:auto" title="分步诊断：网络 → 认证 → 执行">🧪</button>' +
+      '<button class="sm" data-connect="' + esc(a.name) + '">⚡ ' + (st.status === "connected" ? "重连" : "连接") + "</button></div>" +
+      "</div>";
+  }).join("");
+  box.querySelectorAll(".srv").forEach((el) => {
+    el.onclick = (e) => {
+      if (e.target.closest("[data-connect]") || e.target.closest("[data-test]")) return;
+      selectServer(el.dataset.name);
+    };
+  });
+  box.querySelectorAll("[data-connect]").forEach((b) => {
+    b.onclick = async (e) => { e.stopPropagation(); await connectServer(b.dataset.connect); };
+  });
+  box.querySelectorAll("[data-test]").forEach((b) => {
+    b.onclick = async (e) => { e.stopPropagation(); await testServer(b.dataset.test); };
+  });
+}
+
+function renderChip() {
+  const st = connOf(state.current);
+  $("cur-dot").className = "dot " + (st.status === "connected" ? "on" : st.status === "error" ? "err" : st.status === "connecting" ? "wait" : "");
+  $("cur-text").textContent = state.current
+    ? state.current + " · " + (st.status === "connected" ? (st.latencyMs || 0) + "ms" : st.status === "error" ? "连接失败" : st.status === "connecting" ? "连接中" : "未连接")
+    : "未选择服务器";
+  $("term-target").textContent = state.current || "未连接";
+}
+
+function selectServer(name) {
+  ++fileSeq;
+  ++dirSeq;
+  state.current = name;
+  state.entries = [];
+  state.file = null;
+  $("viewer").style.display = "none";
+  $("file-body").innerHTML = '<tr><td colspan="5" class="dim" style="padding:22px;text-align:center">点「↻ 刷新」加载目录（自动定位家目录）</td></tr>';
+  termWriteLine("—— 已切换到服务器 " + name + " ——", "dim");
+  state.dir = "";
+  state.rawLs = "";
+  state.navStack = []; state.navIdx = -1;
+  $("xfer-dir").value = "";
+  $("path-input").value = "";
+  updateNavBtns();
+  renderServers(); renderChip(); renderCrumbs(); updatePrompt();
+}
+
+async function connectServer(name) {
+  state.conn[name] = { status: "connecting" };
+  renderServers(); renderChip();
+  try {
+    const j = await api("/api/connect", { name });
+    state.conn[name] = j.state || { status: j.ok ? "connected" : "error" };
+    toast(j.ok ? `已连接 ${name}（${j.state.latencyMs} ms）` : `连接失败：${j.error || "未知错误"}`, j.ok ? "" : "err");
+  } catch (e) {
+    state.conn[name] = { status: "error", lastError: e.message };
+    toast("连接失败: " + e.message, "err");
+  }
+  renderServers(); renderChip(); renderAccounts();
+}
+
+async function connectAll() {
+  toast("正在依次连接全部服务器…", "info");
+  try {
+    const j = await api("/api/connect-all", {});
+    (j.results || []).forEach((r) => { state.conn[r.name] = r; });
+    const ok = (j.results || []).filter((r) => r.status === "connected").length;
+    toast(`连接完成：${ok}/${j.results.length} 台成功`, ok ? "" : "err");
+  } catch (e) { toast(e.message, "err"); }
+  renderServers(); renderChip(); renderAccounts();
+}
+
+/* ---------------- 连接诊断（测试按钮） ---------------- */
+async function testServer(name) {
+  // 只做诊断，不改变当前服务器（避免目录/提示符与实际命令错位）
+  $("test-title").textContent = "连接诊断 · " + name;
+  $("test-body").innerHTML = '<div class="dim">⏳ 分步检测中（网络 → 认证 → 远程执行）…</div>';
+  $("overlay-test").classList.add("show");
+  state.testing = name;
+  try {
+    const j = await api("/api/test", { name });
+    renderTest(j);
+    if (j.steps) {
+      const auth = j.steps.find((s) => s.label.includes("认证"));
+      if (auth && auth.ok) state.conn[name] = { status: "connected", latencyMs: 0 };
+      else if (auth) state.conn[name] = { status: "error", lastError: auth.detail };
+      renderServers(); renderChip(); renderAccounts();
+    }
+  } catch (e) {
+    $("test-body").innerHTML = '<div style="color:var(--err)">' + esc(e.message) + "</div>";
+  }
+}
+
+function renderTest(j) {
+  const steps = j.steps || [];
+  const head = '<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">' +
+    '<span class="dot ' + (j.ok ? "on" : "err") + '"></span><b>' +
+    (j.ok ? "全部通过，连接可用" : "存在问题，按下方建议处理") + "</b></div>";
+  const body = steps.map((s) =>
+    '<div class="tstep"><span class="env-ico">' + (s.ok ? "✅" : "❌") + "</span><div>" +
+    '<div class="lbl">' + esc(s.label) + "</div>" +
+    '<div class="det">' + esc(s.detail) + "</div>" +
+    (s.advice ? '<div class="sug">👉 ' + esc(s.advice) + "</div>" : "") +
+    "</div></div>").join("");
+  $("test-body").innerHTML = head + body;
+}
+
+/* ---------------- 环境检测 ---------------- */
+async function loadEnvCheck() {
+  const box = $("env-result");
+  box.innerHTML = '<div class="card"><div class="card-body"><div class="dim" style="padding:14px">⏳ 正在检测 Node、OpenSSH、密钥、配置…</div></div></div>';
+  try {
+    const j = await api("/api/env/check");
+    $("ssh-dir-label").textContent = j.sshDir || "";
+    const bad = j.items.filter((i) => i.status !== "ok").length;
+    box.innerHTML = '<div class="card"><div class="card-head"><b>环境检测结果</b>' +
+      '<span class="badge">' + j.items.length + " 项 · " + (bad ? '<b style="color:var(--warn)">' + bad + " 项需处理</b>" : '<b style="color:var(--ok)">全部正常</b>') + "</span>" +
+      '<div class="spacer"></div><button class="sm" id="btn-env-again">重新检测</button></div><div class="card-body">' +
+      j.items.map((it) => '<div class="env-item"><span class="env-ico">' +
+        (it.status === "ok" ? "✅" : it.status === "warn" ? "⚠️" : "❌") + "</span><div>" +
+        '<div class="lbl">' + esc(it.label) + "</div>" +
+        '<div class="det">' + esc(it.detail) + "</div>" +
+        (it.advice ? '<div class="adv">👉 ' + esc(it.advice) + "</div>" : "") +
+        "</div></div>").join("") + "</div></div>";
+    $("btn-env-again").onclick = loadEnvCheck;
+  } catch (e) {
+    box.innerHTML = '<div class="card"><div class="card-body"><div style="padding:14px;color:var(--err)">' + esc(e.message) + "</div></div></div>";
+  }
+}
+
+/* ---------------- 密钥管理 ---------------- */
+async function loadKeys() {
+  try {
+    const j = await api("/api/keys");
+    state.keys = j.keys || [];
+    $("ssh-dir-label").textContent = j.dir || "";
+    $("k-dir").textContent = j.dir || "~/.ssh";
+    $("keys-body").innerHTML = state.keys.length ? state.keys.map((k) =>
+      "<tr><td class='name'>" + esc(k.name) + "</td><td>" + esc(k.type) + (k.bits ? " " + k.bits : "") + "</td>" +
+      '<td class="dim" style="max-width:280px;overflow:hidden;text-overflow:ellipsis" title="' + esc(k.fingerprint) + '">' + esc(k.fingerprint) + "</td>" +
+      "<td>" + (k.hasPub ? '<span class="pill on">有</span>' : '<span class="pill err">缺失</span>') + "</td>" +
+      '<td class="dim">' + esc(k.mtime) + "</td></tr>").join("")
+      : '<tr><td colspan="5" class="dim" style="padding:18px;text-align:center">还没有密钥，点上方「＋ 生成新密钥」</td></tr>';
+  } catch (e) { toast("读取密钥失败: " + e.message, "err"); }
+}
+
+function suggestKeyName(algo) {
+  const base = algo === "rsa" ? "id_rsa" : algo === "ecdsa" ? "id_ecdsa" : "id_ed25519";
+  if (!(state.keys || []).some((k) => k.name === base)) return base;
+  let i = 2;
+  while ((state.keys || []).some((k) => k.name === base + "_" + i)) i++;
+  return base + "_" + i;
+}
+
+function openKeyModal() {
+  $("k-name").value = suggestKeyName($("k-algo").value);
+  $("k-comment").value = "";
+  $("k-pass").value = "";
+  $("k-over").checked = false;
+  $("overlay-key").classList.add("show");
+}
+
+async function doGenerateKey() {
+  $("key-do").disabled = true;
+  try {
+    const j = await api("/api/keys/generate", {
+      algorithm: $("k-algo").value,
+      name: $("k-name").value.trim(),
+      comment: $("k-comment").value.trim(),
+      passphrase: $("k-pass").value,
+      overwrite: $("k-over").checked,
+    });
+    $("overlay-key").classList.remove("show");
+    showGenResult(j);
+    loadKeys();
+    toast("密钥已生成：" + j.path);
+  } catch (e) {
+    toast(e.message, "err");
+  } finally { $("key-do").disabled = false; }
+}
+
+function showGenResult(j) {
+  state.lastGen = j;
+  $("gen-result").style.display = "flex";
+  $("gen-priv").textContent = j.path;
+  $("gen-pub").textContent = j.pubPath;
+  $("gen-fp").textContent = j.fingerprint;
+  const acc = state.accounts.find((a) => a.name === state.current) || state.accounts[0] ||
+    { username: "your-user", host: "your-server", port: 22 };
+  $("cmd-copyid").textContent = 'ssh-copy-id -i "' + j.pubPath + '" -p ' + acc.port + " " + acc.username + "@" + acc.host;
+  $("cmd-manual").textContent = 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo "' + j.publicKey +
+    '" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys';
+  $("gen-result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function copyText(text, label) {
+  try { await navigator.clipboard.writeText(text); toast(label || "已复制"); }
+  catch { toast("复制失败，请手动选择文本", "err"); }
+}
+
+/* ---------------- AI 配置 ---------------- */
+async function aiDetect() {
+  const box = $("ai-detect-result");
+  box.innerHTML = '<div class="dim" style="padding:6px 0">⏳ 正在探测本机模型服务…</div>';
+  try {
+    const j = await api("/api/ai/detect");
+    if (!j.found || !j.found.length) {
+      box.innerHTML = '<div class="dim" style="padding:6px 0">未发现本地模型服务。可安装 Ollama 后重试，或直接填写上面的 Base URL / Key。</div>';
+      return null;
+    }
+    box.innerHTML = j.found.map((f, i) =>
+      '<div class="slash-item" data-d="' + i + '"><b>' + esc(f.label) + "</b><span>" + esc(f.baseUrl) +
+      (f.hasKey ? " · 已保存 Key" : "") +
+      (f.models && f.models.length ? " · " + esc(f.models.slice(0, 2).join(", ")) : "") + "</span></div>"
+    ).join("");
+    box.querySelectorAll("[data-d]").forEach((el) => {
+      el.onclick = () => {
+        const f = j.found[Number(el.dataset.d)];
+        $("ai-base").value = f.baseUrl;
+        if (f.models && f.models.length) { $("ai-models").value = f.models.join(", "); $("ai-model").value = f.models[0]; }
+        toast("已填入 " + f.label + "，点「保存」生效");
+      };
+    });
+    return j.found;
+  } catch (e) {
+    box.innerHTML = '<div class="dim" style="padding:6px 0">检测失败：' + esc(e.message) + "</div>";
+    return null;
+  }
+}
+
+async function loadAi() {
+  try { state.ai = await api("/api/ai/config"); } catch { state.ai = { configured: false }; }
+  updatePrompt();
+  return state.ai;
+}
+
+function openAiModal() {
+  const c = state.ai || {};
+  $("ai-base").value = c.baseUrl || "";
+  $("ai-model").value = c.model || "";
+  $("ai-models").value = (c.models || []).join(", ");
+  $("ai-key").value = "";
+  $("ai-key").placeholder = c.hasKey ? "已保存（留空不修改）" : "sk-...";
+  $("overlay-ai").classList.add("show");
+}
+
+async function saveAiModal() {
+  try {
+    const j = await api("/api/ai/config", {
+      baseUrl: $("ai-base").value.trim(),
+      apiKey: $("ai-key").value,
+      model: $("ai-model").value.trim(),
+      models: $("ai-models").value.split(",").map((s) => s.trim()).filter(Boolean),
+    });
+    state.ai = j; $("overlay-ai").classList.remove("show"); updatePrompt();
+    toast(j.configured ? "AI 配置已保存，可用 /workbuddy 开始对话" : "已保存，但还缺少 Base URL 或 Key");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+/* ---------------- 终端 ---------------- */
+function needServer() {
+  if (!state.current) { toast("请先在左侧选择服务器", "err"); return false; }
+  return true;
+}
+/* ---------------- 终端：历史 / 输入 / AI ---------------- */
+const TERM = {
+  zoom: Math.max(0.85, Math.min(1.8, parseFloat(localStorage.getItem("wb_term_zoom") || "1"))),
+  aiMode: false, aiMessages: [], pending: null, filter: "all",
+};
+let termHistory = [];
+try { termHistory = JSON.parse(localStorage.getItem("wb_term_history") || "[]") || []; } catch { termHistory = []; }
+if (!Array.isArray(termHistory)) termHistory = [];
+
+const SLASH = [
+  { c: "/workbuddy", d: "进入 AI 对话模式（可跟问题，如 /workbuddy 磁盘满了怎么办）" },
+  { c: "/workbuddy-mode", d: "切换模型（需先在 ⚙ AI 配置）" },
+  { c: "/workbuddy-think", d: "切换思考程度与上下文长度" },
+  { c: "/exit", d: "退出 AI 模式，回到命令模式" },
+  { c: "/clear", d: "清空终端输出" },
+  { c: "/help", d: "查看指令说明" },
+];
+
+function termWrite(text, cls) {
+  const out = $("out");
+  const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 30;
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = sanitizeTermText(text);
+  out.appendChild(span);
+  if (atBottom) out.scrollTop = out.scrollHeight;
+}
+
+/** 清掉 ANSI 控制序列与 \r 覆盖（top/ls --color 等命令的输出否则会显示成乱码） */
+function sanitizeTermText(s) {
+  let t = String(s ?? "");
+  t = t.replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "")
+       .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "")
+       .replace(/\x1b[()][A-Za-z0-9]/g, "");
+  t = t.split("\n").map((line) => {
+    if (!line.includes("\r")) return line;
+    const parts = line.split("\r").filter((x) => x.length);
+    return parts.length ? parts[parts.length - 1] : "";
+  }).join("\n");
+  return t;
+}
+
+/** 交互式命令在无 PTY 的通道下必然失败，提前给出可执行的替代方案 */
+function interactiveHint(cmd) {
+  const c = String(cmd).trim();
+  if (/^top\b/.test(c) && !/\s-b\b/.test(c)) return "top 是交互式程序，需要真实终端（PTY）。面板走的是非交互执行，会报 “failed tty get”。请改用批处理模式：top -b -n 1";
+  if (/^htop\b/.test(c)) return "htop 需要 PTY，面板无法运行。可改用：top -b -n 1";
+  if (/^(vi|vim|nano|emacs)\b/.test(c)) return "vi/vim/nano 需要交互式终端，无法在面板运行；请用「文件」页直接编辑保存。";
+  if (/^(less|more)\b/.test(c)) return "less/more 是分页交互程序，请改用：tail -n 50 <文件> 或 sed -n '1,50p' <文件>";
+  if (/^watch\b/.test(c)) return "watch 需要 PTY，请改用 while 循环，或放到「后台任务」里跑。";
+  if (/^(tmux|screen)\b/.test(c) && !/\b(ls|list)\b/.test(c)) return "tmux/screen 的交互会话需要 PTY；面板只能执行非交互命令（可用 tmux ls 查看）。";
+  return "";
+}
+function termWriteLine(text, cls) { termWrite((text ?? "") + "\n", cls); }
+
+function addHistory(rec) {
+  termHistory.push({ t: Date.now(), ...rec });
+  if (termHistory.length > 300) termHistory = termHistory.slice(-300);
+  localStorage.setItem("wb_term_history", JSON.stringify(termHistory));
+  renderHistory();
+}
+function fmtTime(ts) { return new Date(ts).toLocaleTimeString("zh-CN", { hour12: false }); }
+
+function renderHistory() {
+  const q = ($("hist-q").value || "").toLowerCase().trim();
+  let rows = termHistory.slice().reverse();
+  if (TERM.filter !== "all") rows = rows.filter((r) => (r.type || "cmd") === TERM.filter);
+  if (q) rows = rows.filter((r) => [r.cmd, r.server, r.ok ? "成功" : "失败"].join(" ").toLowerCase().includes(q));
+  rows = rows.slice(0, 150);
+  $("hist-body").innerHTML = rows.length ? rows.map((r, i) =>
+    '<div class="hist-row ' + (r.type === "ai" ? "ai" : "") + '" data-i="' + i + '">' +
+    '<span class="t">' + fmtTime(r.t) + "</span>" +
+    '<span class="s">' + esc(r.server || "—") + "</span>" +
+    '<span class="c">' + (r.type === "ai" ? "🤖 " : "❯ ") + esc(r.cmd) + "</span>" +
+    '<span class="st ' + (r.ok === false ? "err" : r.ok ? "ok" : "") + '">' + (r.ok === false ? "失败" : r.ok ? "成功" : "—") + "</span></div>"
+  ).join("") : '<div class="dim" style="padding:14px;text-align:center">暂无记录</div>';
+  $("hist-body").querySelectorAll("[data-i]").forEach((el) => {
+    const rec = rows[Number(el.dataset.i)];
+    el.onclick = () => { $("cmd").value = rec.cmd; $("cmd").focus(); };
+    el.ondblclick = () => { $("cmd").value = rec.cmd; submitInput(); };
+  });
+}
+
+function setZoom(z) {
+  TERM.zoom = Math.max(0.85, Math.min(1.8, z));
+  document.documentElement.style.setProperty("--term-zoom", TERM.zoom);
+  localStorage.setItem("wb_term_zoom", String(TERM.zoom));
+  $("term-zoom-label").textContent = Math.round(TERM.zoom * 100) + "%";
+}
+
+function updatePrompt() {
+  const acc = state.accounts.find((a) => a.name === state.current);
+  if (TERM.aiMode) {
+    const c = state.ai || {};
+    $("prompt-label").textContent = "AI·" + (c.model || "未配置") + " ❯";
+    $("prompt-label").style.color = "var(--acc)";
+    $("ai-badge").textContent = "AI 模式 · 输入 /exit 退出";
+  } else {
+    $("prompt-label").textContent = acc ? acc.username + "@" + acc.host + ":" + (state.dir || "~") + "$" : "❯";
+    $("prompt-label").style.color = "var(--acc2)";
+    $("ai-badge").textContent = "";
+  }
+}
+
+function submitInput() {
+  const raw = $("cmd").value;
+  if (!raw.trim()) return;
+  $("cmd").value = "";
+  hideSlash();
+  if (TERM.pending) { choosePending(raw.trim()); return; }
+  if (raw.trim().startsWith("/")) {
+    Promise.resolve(handleSlash(raw.trim())).catch((e) => termWriteLine("指令执行失败：" + e.message, "err"));
+    return;
+  }
+  if (TERM.aiMode) { aiSay(raw.trim()); return; }
+  runCmd(raw.trim());
+}
+
+async function handleSlash(raw) {
+  const [cmd, ...rest] = raw.split(/\s+/);
+  const arg = rest.join(" ").trim();
+  if (cmd === "/workbuddy") {
+    if (!(state.ai && state.ai.configured)) {
+      termWriteLine("⏳ 未配置 AI，正在探测本机可用的模型服务…", "dim");
+      let hit = null;
+      try {
+        const d = await api("/api/ai/detect");
+        hit = (d.found || []).find((f) => f.hasKey || (f.models && f.models.length));
+      } catch { /* 探测失败走手动配置 */ }
+      if (hit) {
+        await saveAi({ baseUrl: hit.baseUrl, model: (hit.models && hit.models[0]) || "", models: hit.models || [] });
+        termWriteLine("✅ 已自动接入：" + hit.label + (hit.models && hit.models[0] ? "（模型 " + hit.models[0] + "）" : ""), "ai");
+      } else {
+        termWriteLine("⚠ 未检测到可用的模型服务。", "err");
+        termWriteLine("说明：WorkBuddy 桌面端的模型会话不对外开放 API，面板是独立进程，无法直接复用它的登录态。", "dim");
+        termWriteLine("两种解决：① 本机装 Ollama / LM Studio，装好后输入 /workbuddy 会自动发现；② 在弹窗填一个 OpenAI 兼容的 Base URL + Key。", "dim");
+        openAiModal();
+        return;
+      }
+    }
+    TERM.aiMode = true; updatePrompt();
+    termWriteLine("🤖 已进入 AI 模式：直接输入问题即可。", "ai");
+    termWriteLine("   /exit 退出 · /workbuddy-mode 换模型 · /workbuddy-think 调思考与上下文（AI 不会直接执行命令）", "dim");
+    if (arg) aiSay(arg);
+    return;
+  }
+  if (cmd === "/exit") {
+    if (!TERM.aiMode) { termWriteLine("当前不在 AI 模式。", "dim"); return; }
+    TERM.aiMode = false; TERM.aiMessages = []; updatePrompt();
+    termWriteLine("已退出 AI 模式，回到命令模式。", "dim"); return;
+  }
+  if (cmd === "/workbuddy-mode") {
+    const c = state.ai || {};
+    const models = (c.models && c.models.length ? c.models : [c.model].filter(Boolean));
+    if (!models.length) { termWriteLine("还没有可用模型，请先在「⚙ AI」里填写。", "err"); openAiModal(); return; }
+    if (arg) { saveAi({ model: arg }); return; }
+    termWriteLine("可用模型：", "dim");
+    models.forEach((m, i) => termWriteLine("  " + (i + 1) + ") " + m + (m === c.model ? "   ← 当前" : ""), "out"));
+    termWriteLine("输入序号切换（也可写 /workbuddy-mode <模型名>）。", "dim");
+    TERM.pending = { kind: "model", options: models };
+    return;
+  }
+  if (cmd === "/workbuddy-think") {
+    const c = state.ai || {};
+    if (arg) {
+      const patch = {};
+      arg.toLowerCase().split(/\s+/).forEach((p) => {
+        if (["off", "low", "medium", "high"].includes(p)) patch.thinking = p;
+        else if (/^\d+k?$/.test(p)) patch.contextK = parseInt(p, 10);
+      });
+      if (!Object.keys(patch).length) { termWriteLine("用法：/workbuddy-think high、/workbuddy-think 16", "dim"); return; }
+      saveAi(patch); return;
+    }
+    termWriteLine("思考程度：", "dim");
+    [["off", "关闭（最快）"], ["low", "低（简短）"], ["medium", "中（结论+要点）"], ["high", "高（详细推理）"]]
+      .forEach(([v, d], i) => termWriteLine("  " + (i + 1) + ") " + v.padEnd(7) + d + (c.thinking === v ? "   ← 当前" : ""), "out"));
+    termWriteLine("上下文长度：", "dim");
+    [4, 8, 16, 32].forEach((k, i) => termWriteLine("  " + (i + 5) + ") " + k + "k" + (c.contextK === k ? "   ← 当前" : ""), "out"));
+    termWriteLine("输入序号选择，或 /workbuddy-think high 16。", "dim");
+    TERM.pending = { kind: "think" };
+    return;
+  }
+  if (cmd === "/clear") { $("out").textContent = ""; return; }
+  if (cmd === "/help") {
+    termWriteLine("可用指令：", "dim");
+    SLASH.forEach((s) => termWriteLine("  " + s.c.padEnd(20) + s.d, "out"));
+    termWriteLine("提示：命令模式下输入的是 Shell 命令；AI 模式下输入的是问题。", "dim");
+    return;
+  }
+  termWriteLine("未知指令：" + cmd + "（输入 /help 查看全部）", "err");
+}
+
+function choosePending(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) { TERM.pending = null; termWriteLine("已取消选择。", "dim"); return; }
+  if (TERM.pending.kind === "model") {
+    const m = TERM.pending.options[n - 1];
+    if (!m) { termWriteLine("序号无效。", "err"); return; }
+    TERM.pending = null; saveAi({ model: m }); return;
+  }
+  if (n >= 1 && n <= 4) { TERM.pending = null; saveAi({ thinking: ["off", "low", "medium", "high"][n - 1] }); return; }
+  if (n >= 5 && n <= 8) { TERM.pending = null; saveAi({ contextK: [4, 8, 16, 32][n - 5] }); return; }
+  termWriteLine("序号无效。", "err");
+}
+
+async function saveAi(patch) {
+  try {
+    const j = await api("/api/ai/config", patch);
+    state.ai = j; updatePrompt();
+    termWriteLine("✅ 已更新：" + Object.entries(patch).map(([k, v]) => k + "=" + v).join(" ") +
+      "（模型 " + (j.model || "未设置") + " · 思考 " + j.thinking + " · 上下文 " + j.contextK + "k）", "ai");
+    if (patch.model && TERM.aiMessages.length) { TERM.aiMessages = []; termWriteLine("（已切换模型，对话上下文已重置）", "dim"); }
+  } catch (e) { termWriteLine("保存失败：" + e.message, "err"); }
+}
+
+async function aiSay(text) {
+  if (!(state.ai && state.ai.configured)) { openAiModal(); return; }
+  TERM.aiMessages.push({ role: "user", content: text });
+  termWriteLine("🤖 " + text, "ai");
+  $("ai-badge").textContent = "AI 思考中…";
+  try {
+    const j = await api("/api/ai/chat", {
+      messages: TERM.aiMessages, model: state.ai.model, thinking: state.ai.thinking,
+      contextK: state.ai.contextK, server: state.current, cwd: state.dir,
+    });
+    TERM.aiMessages.push({ role: "assistant", content: j.text });
+    termWriteLine("\n" + j.text + "\n", "ai");
+    addHistory({ server: state.current || "AI", cmd: text, type: "ai", ok: true });
+    if (j.usage) termWriteLine("— tokens " + (j.usage.total_tokens || "?") + " · " + j.model + " · 思考 " + j.thinking + " · 上下文 " + j.contextK + "k —", "dim");
+  } catch (e) {
+    termWriteLine("AI 调用失败：" + e.message, "err");
+    addHistory({ server: state.current || "AI", cmd: text, type: "ai", ok: false });
+  } finally { updatePrompt(); }
+}
+
+function showSlash() {
+  const v = $("cmd").value.trim();
+  const head = v.split(/\s/)[0];
+  const items = SLASH.filter((s) => s.c.startsWith(head));
+  const box = $("slash-menu");
+  if (!v.startsWith("/") || !items.length || v.includes(" ")) { box.classList.remove("show"); return; }
+  box.innerHTML = items.map((s) => '<div class="slash-item" data-c="' + s.c + '"><b>' + s.c + "</b><span>" + s.d + "</span></div>").join("");
+  box.classList.add("show");
+  box.querySelectorAll("[data-c]").forEach((el) => {
+    el.onclick = () => { $("cmd").value = el.dataset.c + " "; hideSlash(); $("cmd").focus(); };
+  });
+}
+function hideSlash() { $("slash-menu").classList.remove("show"); }
+
+let execRunning = false;
+async function runCmd(cmd) {
+  if (!needServer()) return;
+  if (execRunning) { toast("上一条命令还在执行中", "err"); return; }
+  const hint = interactiveHint(cmd);
+  if (hint) {
+    const srv0 = state.current;
+    termWriteLine("❯ " + cmd, "cmdline");
+    termWriteLine("⚠ " + hint, "warn");
+    addHistory({ server: srv0, cmd, type: "cmd", ok: false });
+    return;
+  }
+  execRunning = true;
+  const srv = state.current;           // 快照：避免执行期间切换服务器导致记录串台
+  const t0 = Date.now();
+  const stamp = fmtTime(t0);
+  termWriteLine("❯ " + cmd, "cmdline");
+  state.lastCmd = cmd;
+  try {
+    const j = await api("/api/exec", { connectionName: srv, cmdString: cmd, timeout: 60000 });
+    const dur = Date.now() - t0;
+    const m = String(j.text || "").match(/\[exit code\]\s*(\d+)/);
+    termWrite(j.text || "(无输出)", j.isError ? "err" : "out");
+    termWriteLine("\n── " + stamp + " · " + dur + " ms" + (m ? " · 退出码 " + m[1] : "") + " ──", "dim");
+    addHistory({ server: srv, cmd, type: "cmd", ok: j.ok, exit: m ? Number(m[1]) : 0 });
+    if (j.ok) {
+      state.conn[srv] = { status: "connected", latencyMs: connOf(srv).latencyMs || 0 };
+      renderServers(); renderChip();
+    }
+  } catch (e) {
+    termWriteLine(String(e.message), "err");
+    addHistory({ server: srv, cmd, type: "cmd", ok: false });
+  } finally { execRunning = false; updatePrompt(); }
+}
+
+/* ---------------- 文件 ---------------- */
+
+/* ---------------- 文件 ---------------- */
+function renderCrumbs() {
+  const parts = state.dir.split("/").filter(Boolean);
+  let acc = "";
+  let html = '<a data-p="/">/</a>';
+  parts.forEach((p, i) => {
+    acc += "/" + p;
+    html += '<span class="sep">' + (i === 0 ? "" : "") + "</span><a data-p=\"" + esc(acc) + '">' + esc(p) + "</a>" + (i < parts.length - 1 ? '<span class="sep">/</span>' : "");
+  });
+  $("crumbs").innerHTML = html;
+  $("crumbs").querySelectorAll("a").forEach((a) => { a.onclick = () => loadDir(a.dataset.p); });
+}
+
+let dirSeq = 0;
+async function loadDir(p, opts = {}) {
+  if (!needServer()) return;
+  const token = ++dirSeq;
+  const srv = state.current;
+  let dir = p;
+  if (!dir) {
+    try {
+      const h = await api("/api/files/home", { connectionName: srv });
+      if (token !== dirSeq || srv !== state.current) return;
+      dir = h.home || state.dir || "/";
+      const lbl = $("ssh-dir-label");
+      if (lbl) lbl.textContent = (h.user || "") + " @ " + (h.home || "");
+    } catch { dir = state.dir || "/"; }
+  }
+  $("file-body").innerHTML = '<tr><td colspan="5" class="dim" style="padding:22px;text-align:center">⏳ 加载中…</td></tr>';
+  try {
+    const j = await api("/api/files/list", { connectionName: srv, path: dir });
+    if (token !== dirSeq || srv !== state.current) return; // 丢弃过期响应
+    state.dir = dir;
+    state.rawLs = j.text || "";
+    $("xfer-dir").value = dir;
+    $("path-input").value = dir;
+    if (opts.record !== false) pushNav(dir);
+    renderCrumbs();
+    renderFileTable(state.rawLs);
+    $("search-result").innerHTML = "";
+    updatePrompt();
+    updateNavBtns();
+  } catch (e) {
+    if (token !== dirSeq || srv !== state.current) return;
+    const pl = e.payload || {};
+    const tips = {
+      NOT_FOUND: ["这个路径不存在", "服务器的家目录不一定在 /home/<用户名>（例如 192.0.2.157 的真实家目录是 /home/data/zhaoxin），点下面按钮自动定位。"],
+      PERMISSION_DENIED: ["当前账号对这个目录没有读权限", "目录权限通常为 700/750 且属主不是你：换到有权限的目录，或让管理员放开权限。"],
+      NO_LS: ["远端系统没有 ls 命令", "可能是 Windows 或极简系统，可改用「终端」执行 dir 或直接输入绝对路径。"],
+      CONNECTION: ["连接已断开或认证失败", "回左侧点「⚡ 连接」重新建立连接。"],
+    }[pl.reason] || ["命令执行失败", "请看下方原始输出。"];
+    $("file-body").innerHTML = '<tr><td colspan="5" style="padding:18px">' +
+      '<div style="color:var(--err);font-weight:600;margin-bottom:6px">读取失败：' + esc(pl.error || e.message) + "</div>" +
+      '<div class="dim" style="margin-bottom:8px">原因：' + esc(tips[0]) + "</div>" +
+      '<div class="dim" style="margin-bottom:10px">建议：' + esc(tips[1]) + "</div>" +
+      (pl.text ? '<pre class="out" style="max-height:120px;margin-bottom:10px">' + esc(String(pl.text).slice(0, 400)) + "</pre>" : "") +
+      '<button class="sm primary" data-act="home">🏠 定位真实家目录</button> ' +
+      '<button class="sm" data-act="root">返回根目录</button> ' +
+      '<button class="sm" data-act="diag">🔍 诊断此路径</button>' +
+      "</td></tr>";
+    const b = $("file-body").querySelector('[data-act="home"]'); if (b) b.onclick = goHome;
+    const r2 = $("file-body").querySelector('[data-act="root"]'); if (r2) r2.onclick = () => loadDir("/");
+    const d = $("file-body").querySelector('[data-act="diag"]'); if (d) d.onclick = () => diagnosePath(dir);
+  }
+}
+
+/* 目录前进/后退栈 */
+function pushNav(dir) {
+  const st = state.navStack;
+  if (state.navIdx >= 0 && st[state.navIdx] === dir) { updateNavBtns(); return; }
+  st.splice(state.navIdx + 1);          // 新导航丢弃“前进”分支
+  st.push(dir);
+  if (st.length > 100) st.shift();
+  state.navIdx = st.length - 1;
+  updateNavBtns();
+}
+function updateNavBtns() {
+  $("btn-back").disabled = state.navIdx <= 0;
+  $("btn-fwd").disabled = state.navIdx >= state.navStack.length - 1;
+}
+function navBack() {
+  if (state.navIdx <= 0) return;
+  state.navIdx -= 1;
+  loadDir(state.navStack[state.navIdx], { record: false });
+}
+function navForward() {
+  if (state.navIdx >= state.navStack.length - 1) return;
+  state.navIdx += 1;
+  loadDir(state.navStack[state.navIdx], { record: false });
+}
+async function goHome() {
+  if (!needServer()) return;
+  try {
+    const h = await api("/api/files/home", { connectionName: state.current });
+    if (!h.home) return toast("无法识别家目录", "err");
+    toast("家目录：" + h.home + "（用户 " + (h.user || "?") + "）");
+    loadDir(h.home);
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function diagnosePath(p) {
+  if (!needServer()) return;
+  const cmd = 'id -un; echo HOME=$HOME; ls -ld ' + JSON.stringify(p) + ' 2>&1; stat -c "%A %U:%G %n" ' + JSON.stringify(p) + ' 2>&1';
+  termWriteLine("❯ 诊断 " + p, "cmdline");
+  try {
+    const j = await api("/api/exec", { connectionName: state.current, cmdString: cmd, timeout: 30000 });
+    termWriteLine(j.text || "(无输出)", j.isError ? "err" : "out");
+  } catch (e) { termWriteLine(e.message, "err"); }
+  document.querySelector('.tab[data-tab="term"]').click();
+}
+
+function renderFileTable(text) {
+  // SSH 通道返回 CRLF，必须先归一化，否则 (.+)$ 无法匹配行尾 \r
+  const clean = String(text || "").replace(/\r\n?/g, "\n");
+  const lines = clean.split("\n").filter((l) => l.trim() && !l.trim().startsWith("total "));
+  // 兼容 SELinux 的尾点 / ACL 的加号
+  const re = /^([dl-])([rwxsStT-]{9})[.+@]?\s+(\d+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\d+)\s+(\d{1,2}:\d{2}|\d{4})\s+(.+)$/;
+  state.entries = [];
+  lines.forEach((l) => {
+    const m = l.match(re);
+    if (!m) return;
+    let name = m[10].trim();
+    let target = "";
+    if (name.includes(" -> ")) { const sp = name.split(" -> "); name = sp[0]; target = sp[1]; }
+    if (name === "." || name === "..") return;
+    state.entries.push({
+      type: m[1], perms: m[2], size: Number(m[6]), owner: m[4],
+      date: m[7] + " " + m[8] + " " + m[9], name, target,
+      isDir: m[1] === "d",
+    });
+  });
+  state.entries.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
+  const visible = state.showHidden ? state.entries : state.entries.filter((e) => !e.name.startsWith("."));
+  state.visible = visible;
+  if (!visible.length) {
+    if (state.entries.length) {
+      $("file-body").innerHTML = '<tr><td colspan="5" class="dim" style="padding:22px;text-align:center">已隐藏 ' +
+        state.entries.length + ' 个以 . 开头的项目（点工具栏 👁 显示）</td></tr>';
+      return;
+    }
+    if (lines.length > 0) {
+      $("file-body").innerHTML = '<tr><td colspan="5" style="padding:18px">' +
+        '<div style="color:var(--warn);font-weight:600;margin-bottom:6px">⚠ 输出无法解析（收到 ' + lines.length + ' 行，但格式不匹配）</div>' +
+        '<div class="dim" style="margin-bottom:8px">可能是远端 ls 输出格式特殊（BusyBox / SELinux / Windows）。点「🔍 诊断」或改用终端查看。</div>' +
+        '<pre class="out" style="max-height:150px">' + esc(lines.slice(0, 6).join("\n")) + "</pre></td></tr>";
+    } else {
+      $("file-body").innerHTML = '<tr><td colspan="5" class="dim" style="padding:22px;text-align:center">目录为空</td></tr>';
+    }
+    return;
+  }
+  $("file-body").innerHTML = state.visible.map((e, i) => {
+    const full = (state.dir.replace(/\/$/, "") + "/" + e.name);
+    const icon = e.isDir ? "📁" : e.type === "l" ? "🔗" : "📄";
+    return "<tr><td class=name><a class=\"fname" + (e.isDir ? " dir" : "") + '" data-i="' + i + '"><span class="ico">' + icon + "</span>" + esc(e.name) + "</a></td>" +
+      "<td>" + (e.isDir ? "—" : fmtSize(e.size)) + "</td><td class=muted>" + esc(e.perms) + "</td><td class=muted>" + esc(e.date) + "</td>" +
+      '<td><button class="sm" data-view="' + esc(full) + '">' + (e.isDir ? "进入" : "查看") + '</button>' +
+      (e.isDir ? "" : ' <button class="sm" data-dl="' + esc(full) + '">↓</button>') + '</td></tr>';
+  }).join("");
+  $("file-body").querySelectorAll("[data-i]").forEach((a) => {
+    a.onclick = () => {
+      const e = state.visible[Number(a.dataset.i)];
+      const full = state.dir.replace(/\/$/, "") + "/" + e.name;
+      if (e.isDir) loadDir(full); else openFile(full);
+    };
+  });
+  $("file-body").querySelectorAll("[data-view]").forEach((b) => {
+    b.onclick = () => {
+      const p = b.dataset.view;
+      const e = state.visible.find((x) => state.dir.replace(/\/$/, "") + "/" + x.name === p);
+      if (e && e.isDir) loadDir(p); else openFile(p);
+    };
+  });
+  $("file-body").querySelectorAll("[data-dl]").forEach((b) => { b.onclick = () => downloadFile(b.dataset.dl); });
+}
+
+let fileSeq = 0;
+async function openFile(p) {
+  if (!needServer()) return;
+  const token = ++fileSeq;
+  const srv = state.current;
+  state.file = { path: p, loading: true };
+  $("viewer").style.display = "flex";
+  $("viewer-path").textContent = p;
+  $("editor").value = "⏳ 读取中 …";
+  $("btn-save").disabled = true;
+  $("btn-save-as").disabled = true;
+  $("btn-save-as-ok").disabled = true;
+  $("editor").readOnly = true;
+  try {
+    const j = await api("/api/files/read", { connectionName: srv, remotePath: p });
+    if (token !== fileSeq || srv !== state.current) return;
+    state.file = { path: p, truncated: j.truncated };
+    $("editor").value = j.content;
+    $("editor").readOnly = j.truncated;
+    $("btn-save").disabled = j.truncated;
+    $("btn-save-as").disabled = j.truncated;
+    $("btn-save-as-ok").disabled = j.truncated;
+    updateFileMeta();
+    if (j.truncated) {
+      $("file-meta").textContent += ` · 只读预览 ${fmtSize(j.end)} / ${fmtSize(j.total)}`;
+      toast("文件未完整读取，已禁用保存；请下载完整文件后编辑", "info");
+    }
+    $("find-in-file").value = ""; $("find-count").textContent = "0/0";
+  } catch (e) {
+    if (token !== fileSeq || srv !== state.current) return;
+    state.file = null;                 // 失败必须清空，避免保存写回上一个文件
+    $("editor").value = "";
+    $("btn-save").disabled = true;
+    $("viewer-path").textContent = "（读取失败）" + p;
+    toast(e.message, "err");
+  }
+}
+
+function updateFileMeta() {
+  const v = $("editor").value;
+  const lines = v ? v.split("\n").length : 0;
+  $("file-meta").textContent = `行数 ${lines} · ${fmtSize(new Blob([v]).size)}`;
+}
+
+async function saveFile(targetPath) {
+  if (!needServer()) return;
+  if (!state.file || state.file.loading) return toast("文件尚未加载完成", "err");
+  if (state.file.truncated) return toast("只读预览不能保存，请下载完整文件后编辑", "err");
+  const file = state.file;
+  const srv = state.current;
+  const p = String(targetPath || state.file.path || "").trim();
+  if (!p) return toast("请先填写远程路径", "err");
+  try {
+    await api("/api/files/write", { connectionName: srv, remotePath: p, content: $("editor").value });
+    toast("已保存到 " + p);
+    if (state.file !== file || state.current !== srv) return;
+    if (p !== state.file.path) { state.file.path = p; $("viewer-path").textContent = p; }
+    loadDir(state.dir);
+  } catch (e) { toast(e.message, "err"); }
+}
+
+function findInFile(step) {
+  const q = $("find-in-file").value;
+  const text = $("editor").value;
+  if (!q) { $("find-count").textContent = "0/0"; return; }
+  const positions = [];
+  let i = text.indexOf(q);
+  while (i >= 0 && positions.length < 5000) { positions.push(i); i = text.indexOf(q, i + Math.max(1, q.length)); }
+  if (!positions.length) { $("find-count").textContent = "0/0"; return; }
+  if (state.find.q !== q) { state.find = { q, idx: 0, total: positions.length }; }
+  else {
+    state.find.total = positions.length;
+    state.find.idx = (state.find.idx + (step || 0) + positions.length) % positions.length;
+  }
+  const pos = positions[state.find.idx];
+  const ta = $("editor");
+  ta.focus();
+  ta.setSelectionRange(pos, pos + q.length);
+  // 粗略滚动到选区
+  const ratio = pos / Math.max(1, text.length);
+  ta.scrollTop = ratio * ta.scrollHeight - ta.clientHeight / 2;
+  $("find-count").textContent = (state.find.idx + 1) + "/" + positions.length;
+}
+
+async function searchFiles() {
+  if (!needServer()) return;
+  const q = $("search-q").value.trim();
+  if (!q) return toast("请输入关键词", "err");
+  const mode = $("search-mode").value;
+  $("search-result").innerHTML = '<div class="dim" style="padding:10px 2px">⏳ 搜索中…</div>';
+  try {
+    const j = await api("/api/search", { connectionName: state.current, path: state.dir, query: q, mode });
+    const lines = String(j.text || "").replace(/\r\n?/g, "\n").split("\n").filter(Boolean);
+    if (!lines.length) { $("search-result").innerHTML = '<div class="dim" style="padding:10px 2px">没有匹配结果</div>'; return; }
+    $("search-result").innerHTML =
+      '<div class="card" style="margin-bottom:12px"><div class="card-head"><b style="font-size:12.5px">搜索结果 · ' + lines.length + ' 条</b>' +
+      '<button class="sm" id="btn-search-clear">收起</button></div><div class="card-body" style="max-height:240px">' +
+      lines.map((l) => {
+        const p = mode === "name" ? l : l.split(":")[0];
+        return '<div style="padding:6px 12px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;cursor:pointer" data-open="' + esc(p) + '">' +
+          (mode === "name" ? esc(l) : '<span class="dim">' + esc(l) + "</span>") + "</div>";
+      }).join("") + "</div></div>";
+    $("btn-search-clear").onclick = () => { $("search-result").innerHTML = ""; };
+    $("search-result").querySelectorAll("[data-open]").forEach((el) => {
+      el.onclick = () => {
+        const p = el.dataset.open;
+        if (mode === "name") openFile(p);
+      };
+    });
+  } catch (e) { $("search-result").innerHTML = '<div class="dim" style="color:var(--err);padding:10px 2px">' + esc(e.message) + "</div>"; }
+}
+
+/* ---------------- 传输 ---------------- */
+async function uploadFiles(fileList) {
+  if (!needServer()) return;
+  const dir = ($("xfer-dir").value || state.dir).replace(/\/$/, "");
+  for (const f of fileList) {
+    const remote = dir + "/" + f.name;
+    toast(`上传 ${f.name} …`, "info");
+    try {
+      const url = "/api/transfer/upload?connectionName=" + encodeURIComponent(state.current) +
+        "&remotePath=" + encodeURIComponent(remote) + "&filename=" + encodeURIComponent(f.name);
+      const r = await fetch(url, { method: "POST", body: f });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "上传失败");
+      toast(`✔ ${f.name} 已上传（${fmtSize(f.size)}）`);
+    } catch (e) { toast(`✖ ${f.name}: ${e.message}`, "err"); }
+  }
+  loadTransfers();
+  if (state.dir === dir) loadDir(state.dir);
+}
+
+function downloadFile(remotePath) {
+  if (!needServer()) return;
+  const a = document.createElement("a");
+  a.href = "/api/transfer/download?connectionName=" + encodeURIComponent(state.current) + "&remotePath=" + encodeURIComponent(remotePath);
+  a.download = "";
+  document.body.appendChild(a); a.click(); a.remove();
+  toast("已开始下载: " + remotePath, "info");
+  setTimeout(loadTransfers, 1200);
+}
+
+async function loadTransfers() {
+  try {
+    const j = await api("/api/transfers");
+    const rows = j.transfers || [];
+    $("xfer-body").innerHTML = rows.length ? rows.map((t) =>
+      "<tr><td class=dim>" + esc(t.time) + "</td><td>" + (t.dir === "up" ? "↑ 上传" : "↓ 下载") + "</td>" +
+      '<td class=name title="' + esc(t.remotePath) + '">' + esc(t.remotePath) + "</td><td>" + fmtSize(t.bytes) + "</td>" +
+      '<td><span class="pill ' + (t.ok ? "on" : "err") + '">' + (t.ok ? "成功" : "失败") + "</span></td></tr>"
+    ).join("") : '<tr><td colspan="5" class="dim" style="padding:18px;text-align:center">暂无记录</td></tr>';
+  } catch (e) { /* ignore */ }
+}
+
+/* ---------------- 账号 ---------------- */
+function renderAccounts() {
+  const body = $("acct-body");
+  if (!state.accounts.length) { body.innerHTML = '<tr><td colspan="6" class="dim" style="padding:18px;text-align:center">暂无账号</td></tr>'; return; }
+  body.innerHTML = state.accounts.map((a) => {
+    const st = connOf(a.name);
+    return "<tr><td><b>" + esc(a.name) + "</b></td><td>" + esc(a.host + ":" + a.port) + "</td><td>" + esc(a.username) + "</td>" +
+      "<td>" + (a.authType === "key" ? "私钥" : "密码") + "</td><td>" + pill(st) + "</td>" +
+      '<td><button class="sm" data-t="' + esc(a.name) + '">🧪 测试</button> <button class="sm" data-c="' + esc(a.name) + '">⚡ 连接</button> <button class="sm" data-e="' + esc(a.name) + '">编辑</button> <button class="sm danger" data-d="' + esc(a.name) + '">删除</button></td></tr>';
+  }).join("");
+  body.querySelectorAll("[data-t]").forEach((b) => { b.onclick = () => testServer(b.dataset.t); });
+  body.querySelectorAll("[data-c]").forEach((b) => { b.onclick = () => connectServer(b.dataset.c); });
+  body.querySelectorAll("[data-e]").forEach((b) => { b.onclick = () => openModal(b.dataset.e); });
+  body.querySelectorAll("[data-d]").forEach((b) => { b.onclick = () => removeAccount(b.dataset.d); });
+}
+
+function openModal(name) {
+  state.editing = name || null;
+  state.auth = "key";
+  $("modal-title").textContent = name ? "编辑服务器 · " + name : "添加服务器";
+  const a = state.accounts.find((x) => x.name === name);
+  $("f-name").value = a ? a.name : "";
+  $("f-host").value = a ? a.host : "";
+  $("f-port").value = a ? a.port : 22;
+  $("f-user").value = a ? a.username : "";
+  $("f-key").value = a ? (a.privateKey || "") : "C:/Users/Admin/.ssh/id_ed25519";
+  $("f-pwd").value = "";
+  setAuth(a ? a.authType : "key");
+  $("overlay").classList.add("show");
+}
+function setAuth(t) {
+  state.auth = t;
+  document.querySelectorAll("#auth-seg button").forEach((b) => b.classList.toggle("on", b.dataset.auth === t));
+  $("wrap-key").style.display = t === "key" ? "flex" : "none";
+  $("wrap-pwd").style.display = t === "password" ? "flex" : "none";
+}
+function closeModal() { $("overlay").classList.remove("show"); state.editing = null; }
+
+async function saveAccount() {
+  const payload = {
+    name: $("f-name").value.trim(), host: $("f-host").value.trim(),
+    port: Number($("f-port").value), username: $("f-user").value.trim(),
+    authType: state.auth,
+  };
+  if (state.auth === "key") payload.privateKey = $("f-key").value.trim();
+  else payload.password = $("f-pwd").value;
+  try {
+    if (state.editing) {
+      payload.originalName = state.editing;
+      await api("/api/accounts", payload, "PUT");
+      toast("已更新配置，MCP 在下一次调用前加载");
+    } else {
+      await api("/api/accounts", payload);
+      toast("已添加配置，MCP 在下一次调用前加载");
+    }
+    closeModal(); await loadOverview();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function removeAccount(name) {
+  if (!confirm(`确定删除服务器「${name}」？\n（仅移除配置，不会影响远程服务器）`)) return;
+  try {
+    await api("/api/accounts?name=" + encodeURIComponent(name), null, "DELETE");
+    toast("已删除 " + name);
+    await loadOverview();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+let monitorLoading = false;
+async function loadMonitor() {
+  if (monitorLoading) return;
+  monitorLoading = true;
+  $("monitor-refresh").disabled = true;
+  try {
+    const params = new URLSearchParams({
+      source: $("monitor-source").value, risk: $("monitor-risk").value,
+      connectionName: $("monitor-server").value.trim(),
+    });
+    const j = await api("/api/monitor?" + params);
+    const active = new Set(j.instances.filter((i) => i.active).map((i) => i.instanceId));
+    const sources = { dashboard: "Dashboard", workbuddy: "WorkBuddy", "mcp-client": "其他 MCP 客户端" };
+    const levels = { critical: "严重", high: "高风险", medium: "中风险", low: "低风险" };
+    const reasons = {
+      DESTRUCTIVE_COMMAND: "检测到破坏性命令特征", PRIVILEGED_OR_MUTATING: "提权、修改或服务控制",
+      READ_ONLY_PATTERN: "匹配常见只读命令模式", UNCLASSIFIED_COMMAND: "脚本或未知命令，需人工检查",
+      FILE_WRITE: "远程文件写入", JOB_CONTROL: "终止后台任务",
+      REMOTE_DATA_READ: "远程数据下载", READ_ONLY_TOOL: "只读工具",
+    };
+    $("monitor-config").textContent = j.configPath + " · 当前配置 " + (j.configVersion.slice(0, 12) || "不存在") + " · 下次工具调用时加载";
+    $("monitor-instances").innerHTML = j.instances.map((i) => {
+      const sync = i.configError ? "配置加载失败，已阻止新操作" :
+        i.configVersion === j.configVersion ? "已加载当前配置" : "待下一次调用加载（或正在等待旧操作结束）";
+      return "<tr><td>" + esc(i.client || "未识别") + '<span class="cell-detail">PID ' + esc(i.pid) +
+        '</span></td><td><span class="result-badge ' + (i.active ? "result-success" : "result-unknown") + '">' + (i.active ? "在线" : "无近期心跳 / 已停止") + "</span>" +
+        "</td><td>" + esc(sync) + "</td><td>" + esc(i.activeOperations || 0) + "</td></tr>";
+    }).join("") || '<tr><td colspan="4">未观察到新版 MCP 实例，请构建并重启连接器。</td></tr>';
+    $("monitor-events").innerHTML = j.events.map((e) => {
+      const outcome = e.status === "running" ? active.has(e.instanceId) ? e.admitted ? "进行中" : "等待执行" : "结果未知（实例无心跳）" :
+        e.status === "failed" ? "失败" : "成功";
+      const riskClass = Object.hasOwn(levels, e.risk) ? "risk-" + e.risk : "result-unknown";
+      const resultClass = e.status === "failed" ? "result-failed" : e.status === "succeeded" ? "result-success" :
+        active.has(e.instanceId) ? "result-running" : "result-unknown";
+      return "<tr><td>" + esc(e.time) + '<span class="cell-detail">' + esc(sources[e.source] || e.source) + " · " + esc(e.client) +
+        '</span></td><td>' + esc(e.connectionName) + '</td><td><span class="monitor-tool">' + esc(e.tool) + '</span><span class="cell-detail">' + esc(e.summary) +
+        '</span></td><td><span class="risk-badge ' + riskClass + '">' + esc(levels[e.risk] || "未分级") + '</span><span class="cell-detail">' + esc(reasons[e.reason] || e.reason) +
+        '</span></td><td><span class="result-badge ' + resultClass + '">' + esc(outcome) + '</span><span class="cell-detail">' + (e.durationMs === undefined ? "" : esc(e.durationMs) + " ms") +
+        (e.exitCode === undefined ? "" : " · 退出码 " + esc(e.exitCode)) +
+        (e.failureCode ? "<br>" + esc(e.failureCode) : "") + "</span></td></tr>";
+    }).join("") || '<tr><td colspan="5">当前筛选下暂无操作；空列表不代表服务器没有其他活动。</td></tr>';
+    const notes = [...j.warnings];
+    if (j.truncated) notes.push("展示的是有限日志窗口，旧数据可能未包含在内。");
+    if (!j.instances.some((i) => i.active && /workbuddy/i.test(i.client))) {
+      notes.push("尚未观察到活跃的 WorkBuddy 客户端，请确认使用同一配置文件并调用一次工具。");
+    }
+    $("monitor-health").textContent = notes.join(" ");
+    $("monitor-updated").textContent = "已更新 " + new Date().toLocaleTimeString();
+  } catch (e) {
+    $("monitor-health").textContent = "监控读取失败：" + e.message + "；以下内容可能已过期。";
+  } finally {
+    monitorLoading = false;
+    $("monitor-refresh").disabled = false;
+  }
+}
+
+/* ---------------- 主题 ---------------- */
+function applyTheme(theme) {
+  const dark = theme === "dark";
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  $("btn-theme").textContent = dark ? "☀ 浅色模式" : "☾ 黑色模式";
+  $("btn-theme").setAttribute("aria-pressed", String(dark));
+  $("btn-theme").title = dark ? "切换到浅色模式" : "切换到黑色模式";
+}
+
+function toggleTheme() {
+  const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(theme);
+  try { localStorage.setItem("wb_theme", theme); }
+  catch (error) {
+    console.warn("无法保存主题偏好。", error);
+    toast("主题已切换，但浏览器无法保存偏好，刷新后可能恢复默认", "info");
+  }
+}
+
+/* ---------------- 事件 ---------------- */
+const workspaceSections = {
+  term: ["终端工作台", "连接远程环境，执行命令并查看操作结果。"],
+  keys: ["密钥与环境", "管理连接凭据，检查本机 SSH 环境。"],
+  files: ["远程文件", "浏览、查找与编辑服务器文件。"],
+  xfer: ["文件传输", "在本机与远程服务器之间传递文件。"],
+  acct: ["服务器账号", "统一管理各个 MCP 入口共用的连接配置。"],
+  monitor: ["操作监控", "查看操作记录、配置同步与风险提示。"],
+};
+document.querySelectorAll(".tab").forEach((t) => {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach((x) => {
+      x.classList.remove("active");
+      x.setAttribute("aria-selected", "false");
+      x.tabIndex = -1;
+    });
+    document.querySelectorAll(".pane").forEach((x) => x.classList.remove("active"));
+    t.classList.add("active");
+    t.setAttribute("aria-selected", "true");
+    t.tabIndex = 0;
+    $("pane-" + t.dataset.tab).classList.add("active");
+    state.tab = t.dataset.tab;
+    const [title, description] = workspaceSections[state.tab];
+    $("workspace-title").textContent = title;
+    $("workspace-description").textContent = description;
+    if (state.tab === "xfer") loadTransfers();
+    if (state.tab === "monitor") loadMonitor();
+    if (state.tab === "files" && state.current && !state.entries.length) loadDir();
+    if (state.tab === "keys" && !state.envLoaded) { loadKeys(); state.envLoaded = true; }
+  };
+  t.onkeydown = (e) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    const tabs = [...document.querySelectorAll(".tab")];
+    const index = tabs.indexOf(t);
+    const next = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 :
+      (index + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].focus();
+    tabs[next].click();
+  };
+});
+document.querySelectorAll(".pane").forEach((pane) => {
+  pane.setAttribute("role", "tabpanel");
+  pane.setAttribute("aria-labelledby", "tab-" + pane.id.slice(5));
+});
+$("btn-refresh").onclick = () => { loadOverview(); loadTransfers(); };
+$("btn-theme").onclick = toggleTheme;
+$("btn-connect-all").onclick = connectAll;
+$("monitor-refresh").onclick = loadMonitor;
+$("monitor-source").onchange = $("monitor-risk").onchange = $("monitor-server").onchange = loadMonitor;
+
+/* ---- 密钥 / 检测 / 诊断 ---- */
+$("btn-envcheck").onclick = loadEnvCheck;
+$("btn-genkey").onclick = openKeyModal;
+$("btn-keys-refresh").onclick = loadKeys;
+$("btn-open-ssh").onclick = () => api("/api/keys/open-folder", {}).then(() => toast("已打开密钥文件夹")).catch((e) => toast(e.message, "err"));
+$("btn-open-ssh2").onclick = () => api("/api/keys/open-folder", {}).then(() => toast("已打开密钥文件夹")).catch((e) => toast(e.message, "err"));
+$("btn-copy-pub").onclick = () => copyText(state.lastGen && state.lastGen.publicKey, "公钥已复制，粘贴到服务器 authorized_keys 即可");
+$("btn-copy-cmd").onclick = () => copyText($("cmd-copyid").textContent, "命令已复制，在本机终端执行");
+$("btn-gen-close").onclick = () => { $("gen-result").style.display = "none"; };
+$("k-algo").onchange = () => { $("k-name").value = suggestKeyName($("k-algo").value); };
+$("key-do").onclick = doGenerateKey;
+$("key-x").onclick = $("key-cancel").onclick = () => $("overlay-key").classList.remove("show");
+$("overlay-key").onclick = (e) => { if (e.target === $("overlay-key")) $("overlay-key").classList.remove("show"); };
+$("test-x").onclick = $("test-close").onclick = () => $("overlay-test").classList.remove("show");
+$("overlay-test").onclick = (e) => { if (e.target === $("overlay-test")) $("overlay-test").classList.remove("show"); };
+$("test-retry").onclick = () => { if (state.testing) testServer(state.testing); };
+$("link-keys").onclick = () => {
+  document.querySelector('.tab[data-tab="keys"]').click();
+};
+document.addEventListener("keydown", (e) => {
+  if (document.querySelector(".overlay.show")) return;
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const target = e.target;
+  const inTerm = target && (target.id === "cmd" || (target.closest && target.closest("#pane-term")));
+  if (!inTerm) return;
+  if (e.key === "Enter") { e.preventDefault(); submitInput(); }   // 必须走统一分发（AI 模式下不能当命令执行）
+  if (e.key.toLowerCase() === "l") { e.preventDefault(); $("out").textContent = ""; }
+});
+$("btn-add").onclick = () => openModal();
+$("btn-add2").onclick = () => openModal();
+/* ---- 终端输入与历史 ---- */
+$("cmd").addEventListener("input", showSlash);
+$("cmd").addEventListener("keydown", (e) => {
+  if (e.isComposing || e.keyCode === 229) return;   // 中文输入法选词的回车不提交
+  if (e.key === "Enter") { e.preventDefault(); submitInput(); return; }
+  if (e.key === "Escape") { hideSlash(); TERM.pending = null; $("cmd").value = ""; return; }
+  const cmds = termHistory.filter((r) => (r.type || "cmd") === "cmd").map((r) => r.cmd);
+  if (e.key === "ArrowUp") {
+    if (!cmds.length) return;
+    state.hi = Math.max(0, (state.hi < 0 ? cmds.length : state.hi) - 1);
+    $("cmd").value = cmds[state.hi] || ""; e.preventDefault();
+  }
+  if (e.key === "ArrowDown") {
+    if (!cmds.length) return;
+    state.hi = Math.min(cmds.length, (state.hi < 0 ? cmds.length : state.hi) + 1);
+    $("cmd").value = cmds[state.hi] || ""; e.preventDefault();
+  }
+});
+document.querySelectorAll(".chip").forEach((c) => {
+  c.onclick = () => { $("cmd").value = c.dataset.cmd; submitInput(); };
+});
+$("btn-chips").onclick = () => {
+  const row = $("chips-row");
+  row.style.display = row.style.display === "none" ? "flex" : "none";
+};
+$("hist-q").addEventListener("input", renderHistory);
+$("hist-filter").querySelectorAll("button").forEach((b) => {
+  b.onclick = () => {
+    $("hist-filter").querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+    b.classList.add("on"); TERM.filter = b.dataset.f; renderHistory();
+  };
+});
+$("btn-hist-clear").onclick = () => {
+  if (!confirm("清空本地历史记录？（只清浏览器记录，不影响服务器）")) return;
+  termHistory = []; localStorage.removeItem("wb_term_history"); renderHistory();
+};
+$("btn-hist-toggle").onclick = () => {
+  const card = $("hist-card");
+  card.classList.toggle("collapsed");
+  $("btn-hist-toggle").textContent = card.classList.contains("collapsed") ? "展开" : "收起";
+};
+
+/* ---- 选中复制 / 右键粘贴 / Ctrl+滚轮缩放 ---- */
+$("out").addEventListener("mouseup", async () => {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed) return;
+  const anchor = sel.anchorNode;
+  if (!anchor || !$("out").contains(anchor)) return;   // 只处理输出区内的选区
+  const t = String(sel).trim();
+  if (t.length > 1) {
+    try { await navigator.clipboard.writeText(t); toast("已复制 " + t.length + " 个字符"); } catch { /* 忽略 */ }
+  }
+});
+$("pane-term").addEventListener("contextmenu", async (e) => {
+  if (!e.target.closest || !e.target.closest("#out")) return;  // 输入框/历史区保留原生菜单
+  e.preventDefault();
+  try {
+    const t = await navigator.clipboard.readText();
+    if (!t) return;
+    const input = $("cmd");
+    const s = input.selectionStart ?? input.value.length;
+    const en = input.selectionEnd ?? input.value.length;
+    input.value = input.value.slice(0, s) + t + input.value.slice(en);
+    input.selectionStart = input.selectionEnd = s + t.length;
+    input.focus();
+  } catch { toast("浏览器不允许读取剪贴板，请用 Ctrl+V", "err"); }
+});
+$("pane-term").addEventListener("wheel", (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  setZoom(TERM.zoom + (e.deltaY < 0 ? 0.1 : -0.1));
+}, { passive: false });
+
+/* ---- AI 配置弹窗 ---- */
+$("btn-ai-cfg").onclick = openAiModal;
+$("ai-detect").onclick = aiDetect;
+$("ai-preset").onchange = () => { if ($("ai-preset").value) $("ai-base").value = $("ai-preset").value; };
+$("ai-fetch-models").onclick = async () => {
+  try {
+    const j = await api("/api/ai/models", {});
+    $("ai-models").value = j.models.join(", ");
+    if (!$("ai-model").value && j.models.length) $("ai-model").value = j.models[0];
+    toast("已拉取 " + j.models.length + " 个模型");
+  } catch (e) { toast(e.message, "err"); }
+};
+$("ai-save").onclick = saveAiModal;
+$("ai-x").onclick = $("ai-cancel").onclick = () => $("overlay-ai").classList.remove("show");
+$("overlay-ai").onclick = (e) => { if (e.target === $("overlay-ai")) $("overlay-ai").classList.remove("show"); };
+
+$("btn-ls").onclick = () => loadDir(state.dir || undefined);
+$("btn-home").onclick = goHome;
+$("btn-back").onclick = navBack;
+$("btn-fwd").onclick = navForward;
+$("btn-diag").onclick = () => diagnosePath(state.dir || "/");
+$("btn-toggle-hidden").onclick = () => {
+  state.showHidden = !state.showHidden;
+  localStorage.setItem("wb_show_hidden", state.showHidden ? "1" : "0");
+  $("btn-toggle-hidden").classList.toggle("on", state.showHidden);
+  if (state.rawLs) renderFileTable(state.rawLs);
+  toast(state.showHidden ? "已显示隐藏文件" : "已隐藏以 . 开头的文件");
+};
+$("path-input").addEventListener("keydown", (e) => {
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const v = $("path-input").value.trim();
+    if (v) loadDir(v);
+  }
+});
+$("btn-up").onclick = () => {
+  const p = state.dir.replace(/\/$/, "");
+  const up = p.split("/").slice(0, -1).join("/") || "/";
+  loadDir(up);
+};
+$("btn-search").onclick = searchFiles;
+$("search-q").addEventListener("keydown", (e) => {
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key === "Enter") searchFiles();
+});
+$("btn-upload").onclick = () => $("file-input").click();
+$("file-input").onchange = (e) => { uploadFiles([...e.target.files]); e.target.value = ""; };
+$("btn-save").onclick = () => saveFile();
+$("btn-save-as").onclick = () => {
+  const row = $("save-as-path"), ok = $("btn-save-as-ok");
+  const show = row.style.display === "none";
+  row.style.display = ok.style.display = show ? "inline-block" : "none";
+  if (show) {
+    row.value = (state.file && state.file.path) || (state.dir ? state.dir + "/copy.txt" : "");
+    row.focus(); row.select();
+  }
+};
+$("btn-save-as-ok").onclick = () => {
+  saveFile($("save-as-path").value.trim());
+  $("save-as-path").style.display = "none";
+  $("btn-save-as-ok").style.display = "none";
+};
+$("save-as-path").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); $("btn-save-as-ok").click(); }
+});
+$("btn-close-viewer").onclick = () => { ++fileSeq; $("viewer").style.display = "none"; state.file = null; };
+$("find-in-file").addEventListener("input", () => { state.find.q = ""; findInFile(0); });
+$("btn-find-next").onclick = () => findInFile(1);
+$("btn-find-prev").onclick = () => findInFile(-1);
+
+$("btn-xfer-refresh").onclick = loadTransfers;
+$("btn-use-cur").onclick = () => { $("xfer-dir").value = state.dir; };
+const dz = $("dropzone");
+dz.onclick = () => $("file-input2").click();
+const fi2 = document.createElement("input");
+fi2.type = "file"; fi2.id = "file-input2"; fi2.multiple = true; fi2.style.display = "none";
+document.body.appendChild(fi2);
+fi2.onchange = (e) => { uploadFiles([...e.target.files]); e.target.value = ""; };
+["dragenter", "dragover"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("over"); }));
+dz.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) uploadFiles([...e.dataTransfer.files]); });
+
+$("modal-x").onclick = closeModal;
+$("modal-cancel").onclick = closeModal;
+$("modal-save").onclick = saveAccount;
+$("overlay").onclick = (e) => { if (e.target === $("overlay")) closeModal(); };
+document.querySelectorAll("#auth-seg button").forEach((b) => { b.onclick = () => setAuth(b.dataset.auth); });
+
+/* ---------------- 启动 ---------------- */
+applyTheme(document.documentElement.dataset.theme);
+setZoom(TERM.zoom);
+renderHistory();
+$("btn-toggle-hidden").classList.toggle("on", state.showHidden);
+updateNavBtns();
+loadAi();
+loadOverview().then(() => {
+  if (state.accounts.length && !state.current) {
+    selectServer(state.accounts[0].name);
+  }
+  updatePrompt();
+});
+setInterval(() => { if (state.tab === "acct") loadOverview(); }, 30000);
+setInterval(() => { if (state.tab === "monitor" && !document.hidden) loadMonitor(); }, 5000);
+</script>
+</body>
+</html>

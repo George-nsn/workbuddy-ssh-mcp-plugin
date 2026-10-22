@@ -1,0 +1,12 @@
+[
+  {
+    "name": "dev",
+    "host": "203.0.113.15",
+    "port": 22,
+    "username": "your-user",
+    "privateKey": "~/.ssh/id_ed25519",
+    "commandTimeoutMs": 120000,
+    "maxOutputBytes": 10485760,
+    "allowedRemotePaths": ["/srv/app", "/var/log"]
+  }
+]
